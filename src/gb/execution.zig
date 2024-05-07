@@ -400,25 +400,55 @@ fn execute_ei(gb: *GBState) void {
 }
 
 fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+    const highest_bit_set = (r8_value & 0x80) != 0;
+
+    const result = std.math.rotl(u8, r8_value, 1);
+
+    store_r8(gb, instruction.r8, result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, highest_bit_set);
+    set_zero_flag(&gb.cpu, result == 0);
 }
 
 fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+    const lowest_bit_set = (r8_value & 0x01) != 0;
+
+    const result = std.math.rotr(u8, r8_value, 1);
+
+    store_r8(gb, instruction.r8, result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, lowest_bit_set);
+    set_zero_flag(&gb.cpu, result == 0);
 }
 
 fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
+    const highest_bit_set = (r8_value & 0x80) != 0;
 
-    store_r8(gb, instruction.r8, std.math.rotl(u8, r8_value, 1));
+    const result = r8_value << 1 | gb.cpu.flags.carry;
+
+    store_r8(gb, instruction.r8, result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, highest_bit_set);
+    set_zero_flag(&gb.cpu, result == 0);
 }
 
 fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
+    const lowest_bit_set = (r8_value & 0x01) != 0;
 
-    store_r8(gb, instruction.r8, std.math.rotr(u8, r8_value, 1));
+    const result = r8_value >> 1 | @as(u8, gb.cpu.flags.carry) << 7;
+
+    store_r8(gb, instruction.r8, result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, lowest_bit_set);
+    set_zero_flag(&gb.cpu, result == 0);
 }
 
 fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
@@ -512,7 +542,7 @@ fn load_r16(cpu: CPUState, r16: R16) u16 {
         .bc => (@as(u16, @intCast(cpu.b)) << 8 | cpu.c),
         .de => (@as(u16, @intCast(cpu.d)) << 8 | cpu.e),
         .hl => (@as(u16, @intCast(cpu.h)) << 8 | cpu.l),
-        .af => (@as(u16, @intCast(cpu.a)) << 8 | @as(u8, @bitCast(cpu.f))),
+        .af => (@as(u16, @intCast(cpu.a)) << 8 | @as(u8, @bitCast(cpu.flags))),
         .sp => cpu.sp,
         .pc => cpu.pc,
     };
@@ -537,7 +567,7 @@ fn store_r16(cpu: *CPUState, r16: R16, value: u16) void {
         .af => {
             var r8_f: u8 = undefined;
             store_u16(&cpu.a, &r8_f, value);
-            cpu.f = @bitCast(r8_f);
+            cpu.flags = @bitCast(r8_f);
         },
         .sp => {
             cpu.sp = value;
@@ -560,4 +590,30 @@ fn increment_hl(cpu: *CPUState, increment: bool) void {
     }
 
     store_r16(cpu, R16.hl, hl_value);
+}
+
+fn reset_flags(cpu: *CPUState) void {
+    cpu.flags = .{
+        ._unused = 0,
+        .carry = 0,
+        .half_carry = 0,
+        .substract = 0,
+        .zero = 0,
+    };
+}
+
+fn set_carry_flag(cpu: *CPUState, carry: bool) void {
+    cpu.flags.carry = if (carry) 1 else 0;
+}
+
+fn set_half_carry_flag(cpu: *CPUState, half_carry: bool) void {
+    cpu.flags.half_carry = if (half_carry) 1 else 0;
+}
+
+fn set_substract_flag(cpu: *CPUState, substract: bool) void {
+    cpu.flags.substract = if (substract) 1 else 0;
+}
+
+fn set_zero_flag(cpu: *CPUState, zero: bool) void {
+    cpu.flags.zero = if (zero) 1 else 0;
 }

@@ -23,15 +23,12 @@ test {
     try expectEqual(0x4D, gb_state.cpu.l);
     try expectEqual(0x01, gb_state.cpu.a);
     try expectEqual(cpu.FlagRegister{
-        ._unused0 = 0,
-        ._unused1 = 0,
-        ._unused2 = 0,
-        ._unused3 = 0,
+        ._unused = 0,
         .carry = 1,
         .half_carry = 1,
-        .n_add_sub = 0,
+        .substract = 0,
         .zero = 1,
-    }, gb_state.cpu.f);
+    }, gb_state.cpu.flags);
     try expectEqual(0xFFFE, gb_state.cpu.sp);
     try expectEqual(0x0100, gb_state.cpu.pc);
 
