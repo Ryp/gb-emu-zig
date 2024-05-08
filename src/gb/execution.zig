@@ -161,19 +161,39 @@ fn execute_ld_r8_imm8(gb: *GBState, instruction: instructions.ld_r8_imm8) void {
 }
 
 fn execute_rlca(gb: *GBState) void {
-    _ = gb; // FIXME
+    const msb_set = (gb.registers.a & 0x80) != 0;
+
+    gb.registers.a = std.math.rotl(u8, gb.registers.a, 1);
+
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, msb_set);
 }
 
 fn execute_rrca(gb: *GBState) void {
-    _ = gb; // FIXME
+    const lsb_set = (gb.registers.a & 0x01) != 0;
+
+    gb.registers.a = std.math.rotr(u8, gb.registers.a, 1);
+
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, lsb_set);
 }
 
 fn execute_rla(gb: *GBState) void {
-    _ = gb; // FIXME
+    const msb_set = (gb.registers.a & 0x80) != 0;
+
+    gb.registers.a = gb.registers.a << 1 | gb.registers.flags.carry;
+
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, msb_set);
 }
 
 fn execute_rra(gb: *GBState) void {
-    _ = gb; // FIXME
+    const lsb_set = (gb.registers.a & 0x01) != 0;
+
+    gb.registers.a = gb.registers.a >> 1 | (@as(u8, gb.registers.flags.carry) << 7);
+
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, lsb_set);
 }
 
 fn execute_daa(gb: *GBState) void {
