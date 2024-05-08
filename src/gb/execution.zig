@@ -201,15 +201,24 @@ fn execute_daa(gb: *GBState) void {
 }
 
 fn execute_cpl(gb: *GBState) void {
-    _ = gb; // FIXME
+    gb.registers.a ^= 0b1111_1111;
+
+    gb.registers.flags.half_carry = 1;
+    gb.registers.flags.substract = 1;
 }
 
 fn execute_scf(gb: *GBState) void {
-    _ = gb; // FIXME
+    gb.registers.flags.carry = 1;
+
+    gb.registers.flags.half_carry = 0;
+    gb.registers.flags.substract = 0;
 }
 
 fn execute_ccf(gb: *GBState) void {
-    _ = gb; // FIXME
+    gb.registers.flags.carry ^= 1;
+
+    gb.registers.flags.half_carry = 0;
+    gb.registers.flags.substract = 0;
 }
 
 fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
