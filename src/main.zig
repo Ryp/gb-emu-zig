@@ -24,19 +24,19 @@ pub fn main() !void {
 
     // try sdl2.execute_main_loop(gpa_allocator, &gb_state);
 
-    gb_state.mem[gb_state.cpu.pc + 0] = 0b00110001;
-    gb_state.mem[gb_state.cpu.pc + 1] = 0b11001101;
-    gb_state.mem[gb_state.cpu.pc + 2] = 0b00110111;
+    gb_state.mem[gb_state.registers.pc + 0] = 0b00110001;
+    gb_state.mem[gb_state.registers.pc + 1] = 0b11001101;
+    gb_state.mem[gb_state.registers.pc + 2] = 0b00110111;
 
     std.debug.print("gb emu\n", .{});
 
     while (gb_state.running) {
-        std.debug.print("loop: pc = {}\n", .{gb_state.cpu.pc});
+        std.debug.print("loop: pc = {}\n", .{gb_state.registers.pc});
 
-        const i = try instructions.decode(gb_state.mem[gb_state.cpu.pc..]);
+        const i = try instructions.decode(gb_state.mem[gb_state.registers.pc..]);
 
         execution.execute_instruction(&gb_state, i);
 
-        gb_state.cpu.pc += i.byte_len;
+        gb_state.registers.pc += i.byte_len;
     }
 }

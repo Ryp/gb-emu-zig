@@ -3,9 +3,10 @@ const assert = std.debug.assert;
 
 const cpu_state = @import("cpu.zig");
 const GBState = cpu_state.GBState;
-const CPUState = cpu_state.CPUState;
+const Registers = cpu_state.Registers;
 
 const instructions = @import("instructions.zig");
+const R8 = instructions.R8;
 const R16 = instructions.R16;
 
 pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
@@ -92,49 +93,51 @@ fn execute_nop(gb: *GBState) void {
 }
 
 fn execute_ld_r16_imm16(gb: *GBState, instruction: instructions.ld_r16_imm16) void {
-    store_r16(&gb.cpu, instruction.r16, instruction.imm16);
+    store_r16(&gb.registers, instruction.r16, instruction.imm16);
 }
 
 fn execute_ld_r16mem_a(gb: *GBState, instruction: instructions.ld_r16mem_a) void {
     const r16mem = instruction.r16mem;
-    const address = load_r16(gb.cpu, r16mem.r16);
+    const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.mem[address] = gb.cpu.a;
+    gb.mem[address] = gb.registers.a;
 
     if (r16mem.r16 == R16.hl) {
-        increment_hl(&gb.cpu, r16mem.increment);
+        increment_hl(&gb.registers, r16mem.increment);
     }
 }
 
 fn execute_ld_a_r16mem(gb: *GBState, instruction: instructions.ld_a_r16mem) void {
     const r16mem = instruction.r16mem;
-    const address = load_r16(gb.cpu, r16mem.r16);
+    const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.cpu.a = gb.mem[address];
+    gb.registers.a = gb.mem[address];
 
     if (r16mem.r16 == R16.hl) {
-        increment_hl(&gb.cpu, r16mem.increment);
+        increment_hl(&gb.registers, r16mem.increment);
     }
 }
 
 fn execute_ld_imm16_sp(gb: *GBState, instruction: instructions.ld_imm16_sp) void {
     const address = instruction.imm16;
 
-    store_u16(&gb.mem[address], &gb.mem[address + 1], gb.cpu.sp);
+    // FIXME
+    gb.mem[address] = @intCast(gb.registers.sp >> 8);
+    gb.mem[address + 1] = @intCast(gb.registers.sp & 0xff);
 }
 
 fn execute_inc_r16(gb: *GBState, instruction: instructions.inc_r16) void {
-    const value = load_r16(gb.cpu, instruction.r16);
+    const value = load_r16(gb.registers, instruction.r16);
 
     // FIXME flags?
-    store_r16(&gb.cpu, instruction.r16, value +% 1);
+    store_r16(&gb.registers, instruction.r16, value +% 1);
 }
 
 fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
-    const value = load_r16(gb.cpu, instruction.r16);
+    const value = load_r16(gb.registers, instruction.r16);
 
     // FIXME flags?
-    store_r16(&gb.cpu, instruction.r16, value -% 1);
+    store_r16(&gb.registers, instruction.r16, value -% 1);
 }
 
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
@@ -402,9 +405,9 @@ fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_msb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_msb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
@@ -415,35 +418,35 @@ fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_lsb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
     const r8_msb_set = (r8_value & 0x80) != 0;
 
-    const op_result = r8_value << 1 | gb.cpu.flags.carry;
+    const op_result = r8_value << 1 | gb.registers.flags.carry;
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_msb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_msb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
     const r8_lsb_set = (r8_value & 0x01) != 0;
 
-    const op_result = r8_value >> 1 | @as(u8, gb.cpu.flags.carry) << 7;
+    const op_result = r8_value >> 1 | @as(u8, gb.registers.flags.carry) << 7;
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_lsb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
@@ -455,9 +458,9 @@ fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_msb_set);
-    set_zero_flag(&gb.cpu, r8_rest_unset);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_msb_set);
+    set_zero_flag(&gb.registers, r8_rest_unset);
 }
 
 fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
@@ -469,9 +472,9 @@ fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_lsb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_swap_r8(gb: *GBState, instruction: instructions.swap_r8) void {
@@ -481,8 +484,8 @@ fn execute_swap_r8(gb: *GBState, instruction: instructions.swap_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_zero_flag(&gb.cpu, r8_value == 0);
+    reset_flags(&gb.registers);
+    set_zero_flag(&gb.registers, r8_value == 0);
 }
 
 fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
@@ -493,9 +496,9 @@ fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, r8_lsb_set);
-    set_zero_flag(&gb.cpu, op_result == 0);
+    reset_flags(&gb.registers);
+    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_zero_flag(&gb.registers, op_result == 0);
 }
 
 fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
@@ -504,9 +507,9 @@ fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
     const bit = @as(u8, 1) << instruction.bit_index;
     const op_result = r8_value & bit;
 
-    gb.cpu.flags = .{
+    gb.registers.flags = .{
         ._unused = 0,
-        .carry = gb.cpu.flags.carry,
+        .carry = gb.registers.flags.carry,
         .half_carry = 1,
         .substract = 0,
         .zero = if (op_result == 0) 1 else 0,
@@ -538,91 +541,60 @@ fn execute_invalid_instruction(gb: *GBState) void {
     gb.running = false;
 }
 
-fn load_r8(gb: GBState, r8: instructions.R8) u8 {
+fn load_r8(gb: GBState, r8: R8) u8 {
     return switch (r8) {
-        .b => gb.cpu.b,
-        .c => gb.cpu.c,
-        .d => gb.cpu.d,
-        .e => gb.cpu.e,
-        .h => gb.cpu.h,
-        .l => gb.cpu.l,
-        .hl_p => gb.mem[load_r16(gb.cpu, R16.hl)],
-        .a => gb.cpu.l,
+        .b => gb.registers.b,
+        .c => gb.registers.c,
+        .d => gb.registers.d,
+        .e => gb.registers.e,
+        .h => gb.registers.h,
+        .l => gb.registers.l,
+        .hl_p => gb.mem[load_r16(gb.registers, R16.hl)],
+        .a => gb.registers.l,
     };
 }
 
-fn store_r8(gb: *GBState, r8: instructions.R8, value: u8) void {
+fn store_r8(gb: *GBState, r8: R8, value: u8) void {
     switch (r8) {
-        .b => {
-            gb.cpu.b = value;
-        },
-        .c => {
-            gb.cpu.c = value;
-        },
-        .d => {
-            gb.cpu.d = value;
-        },
-        .e => {
-            gb.cpu.e = value;
-        },
-        .h => {
-            gb.cpu.h = value;
-        },
-        .l => {
-            gb.cpu.l = value;
-        },
-        .hl_p => {
-            gb.mem[load_r16(gb.cpu, R16.hl)] = value;
-        },
-        .a => {
-            gb.cpu.l = value;
-        },
+        .b => gb.registers.b = value,
+        .c => gb.registers.c = value,
+        .d => gb.registers.d = value,
+        .e => gb.registers.e = value,
+        .h => gb.registers.h = value,
+        .l => gb.registers.l = value,
+        .hl_p => gb.mem[load_r16(gb.registers, R16.hl)] = value,
+        .a => gb.registers.l = value,
     }
 }
 
-fn load_r16(cpu: CPUState, r16: R16) u16 {
+fn load_r16(registers: Registers, r16: R16) u16 {
+    const registers_r16: cpu_state.Registers_R16 = @bitCast(registers);
+
     return switch (r16) {
-        .bc => (@as(u16, @intCast(cpu.b)) << 8 | cpu.c),
-        .de => (@as(u16, @intCast(cpu.d)) << 8 | cpu.e),
-        .hl => (@as(u16, @intCast(cpu.h)) << 8 | cpu.l),
-        .af => (@as(u16, @intCast(cpu.a)) << 8 | @as(u8, @bitCast(cpu.flags))),
-        .sp => cpu.sp,
-        .pc => cpu.pc,
+        .bc => registers_r16.bc,
+        .de => registers_r16.de,
+        .hl => registers_r16.hl,
+        .af => registers_r16.af,
+        .sp => registers_r16.sp,
+        .pc => registers_r16.pc,
     };
 }
 
-fn store_u16(hi: *u8, lo: *u8, value: u16) void {
-    hi.* = @intCast(value >> 8);
-    lo.* = @intCast(value & 0xff);
-}
+fn store_r16(registers: *Registers, r16: R16, value: u16) void {
+    var registers_r16: *cpu_state.Registers_R16 = @ptrCast(registers);
 
-fn store_r16(cpu: *CPUState, r16: R16, value: u16) void {
     switch (r16) {
-        .bc => {
-            store_u16(&cpu.b, &cpu.c, value);
-        },
-        .de => {
-            store_u16(&cpu.d, &cpu.e, value);
-        },
-        .hl => {
-            store_u16(&cpu.h, &cpu.l, value);
-        },
-        .af => {
-            var r8_f: u8 = undefined;
-            store_u16(&cpu.a, &r8_f, value);
-            cpu.flags = @bitCast(r8_f);
-        },
-        .sp => {
-            cpu.sp = value;
-        },
-        .pc => {
-            cpu.pc = value;
-        },
+        .bc => registers_r16.bc = value,
+        .de => registers_r16.de = value,
+        .hl => registers_r16.hl = value,
+        .af => registers_r16.af = value,
+        .sp => registers_r16.sp = value,
+        .pc => registers_r16.pc = value,
     }
 }
 
-fn increment_hl(cpu: *CPUState, increment: bool) void {
-    var hl_value = load_r16(cpu.*, R16.hl);
+fn increment_hl(registers: *Registers, increment: bool) void {
+    var hl_value = load_r16(registers.*, R16.hl);
 
     // FIXME What happens to carry flags when this wraps around?
     // Let zig catch an exception since it doesn't look like this is supposed to happen anyway.
@@ -632,31 +604,25 @@ fn increment_hl(cpu: *CPUState, increment: bool) void {
         hl_value -= 1;
     }
 
-    store_r16(cpu, R16.hl, hl_value);
+    store_r16(registers, R16.hl, hl_value);
 }
 
-fn reset_flags(cpu: *CPUState) void {
-    cpu.flags = .{
-        ._unused = 0,
-        .carry = 0,
-        .half_carry = 0,
-        .substract = 0,
-        .zero = 0,
-    };
+fn reset_flags(registers: *Registers) void {
+    registers.flags = @bitCast(@as(u8, 0));
 }
 
-fn set_carry_flag(cpu: *CPUState, carry: bool) void {
-    cpu.flags.carry = if (carry) 1 else 0;
+fn set_carry_flag(registers: *Registers, carry: bool) void {
+    registers.flags.carry = if (carry) 1 else 0;
 }
 
-fn set_half_carry_flag(cpu: *CPUState, half_carry: bool) void {
-    cpu.flags.half_carry = if (half_carry) 1 else 0;
+fn set_half_carry_flag(registers: *Registers, half_carry: bool) void {
+    registers.flags.half_carry = if (half_carry) 1 else 0;
 }
 
-fn set_substract_flag(cpu: *CPUState, substract: bool) void {
-    cpu.flags.substract = if (substract) 1 else 0;
+fn set_substract_flag(registers: *Registers, substract: bool) void {
+    registers.flags.substract = if (substract) 1 else 0;
 }
 
-fn set_zero_flag(cpu: *CPUState, zero: bool) void {
-    cpu.flags.zero = if (zero) 1 else 0;
+fn set_zero_flag(registers: *Registers, zero: bool) void {
+    registers.flags.zero = if (zero) 1 else 0;
 }

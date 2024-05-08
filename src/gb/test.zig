@@ -15,22 +15,22 @@ test {
     var gb_state = try cpu.create_state(allocator);
     defer cpu.destroy_state(allocator, &gb_state);
 
-    try expectEqual(0x00, gb_state.cpu.b);
-    try expectEqual(0x13, gb_state.cpu.c);
-    try expectEqual(0x00, gb_state.cpu.d);
-    try expectEqual(0xD8, gb_state.cpu.e);
-    try expectEqual(0x01, gb_state.cpu.h);
-    try expectEqual(0x4D, gb_state.cpu.l);
-    try expectEqual(0x01, gb_state.cpu.a);
+    try expectEqual(0x00, gb_state.registers.b);
+    try expectEqual(0x13, gb_state.registers.c);
+    try expectEqual(0x00, gb_state.registers.d);
+    try expectEqual(0xD8, gb_state.registers.e);
+    try expectEqual(0x01, gb_state.registers.h);
+    try expectEqual(0x4D, gb_state.registers.l);
+    try expectEqual(0x01, gb_state.registers.a);
     try expectEqual(cpu.FlagRegister{
         ._unused = 0,
         .carry = 1,
         .half_carry = 1,
         .substract = 0,
         .zero = 1,
-    }, gb_state.cpu.flags);
-    try expectEqual(0xFFFE, gb_state.cpu.sp);
-    try expectEqual(0x0100, gb_state.cpu.pc);
+    }, gb_state.registers.flags);
+    try expectEqual(0xFFFE, gb_state.registers.sp);
+    try expectEqual(0x0100, gb_state.registers.pc);
 
     gb_state.mem[0] = 0b00110001;
     gb_state.mem[1] = 0b11001101;
