@@ -138,12 +138,8 @@ fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
 }
 
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
-    const add = load_r16(gb.cpu, instruction.r16);
-    const hl = load_r16(gb.cpu, R16.hl);
-    const result = hl + add;
-
-    // FIXME flags?
-    store_r16(&gb.cpu, R16.hl, result);
+    _ = gb; // FIXME
+    _ = instruction;
 }
 
 fn execute_inc_r8(gb: *GBState, instruction: instructions.inc_r8) void {
@@ -217,9 +213,8 @@ fn execute_halt(gb: *GBState) void {
 }
 
 fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8); // FIXME
-
-    gb.cpu.a += r8_value;
+    _ = gb; // FIXME
+    _ = instruction;
 }
 
 fn execute_adc_a_r8(gb: *GBState, instruction: instructions.adc_a_r8) void {
@@ -401,91 +396,139 @@ fn execute_ei(gb: *GBState) void {
 
 fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
-    const highest_bit_set = (r8_value & 0x80) != 0;
+    const r8_msb_set = (r8_value & 0x80) != 0;
 
-    const result = std.math.rotl(u8, r8_value, 1);
+    const op_result = std.math.rotl(u8, r8_value, 1);
 
-    store_r8(gb, instruction.r8, result);
+    store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, highest_bit_set);
-    set_zero_flag(&gb.cpu, result == 0);
+    set_carry_flag(&gb.cpu, r8_msb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
-    const lowest_bit_set = (r8_value & 0x01) != 0;
+    const r8_lsb_set = (r8_value & 0x01) != 0;
 
-    const result = std.math.rotr(u8, r8_value, 1);
+    const op_result = std.math.rotr(u8, r8_value, 1);
 
-    store_r8(gb, instruction.r8, result);
+    store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, lowest_bit_set);
-    set_zero_flag(&gb.cpu, result == 0);
+    set_carry_flag(&gb.cpu, r8_lsb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
-    const highest_bit_set = (r8_value & 0x80) != 0;
+    const r8_msb_set = (r8_value & 0x80) != 0;
 
-    const result = r8_value << 1 | gb.cpu.flags.carry;
+    const op_result = r8_value << 1 | gb.cpu.flags.carry;
 
-    store_r8(gb, instruction.r8, result);
+    store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, highest_bit_set);
-    set_zero_flag(&gb.cpu, result == 0);
+    set_carry_flag(&gb.cpu, r8_msb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
-    const lowest_bit_set = (r8_value & 0x01) != 0;
+    const r8_lsb_set = (r8_value & 0x01) != 0;
 
-    const result = r8_value >> 1 | @as(u8, gb.cpu.flags.carry) << 7;
+    const op_result = r8_value >> 1 | @as(u8, gb.cpu.flags.carry) << 7;
 
-    store_r8(gb, instruction.r8, result);
+    store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.cpu);
-    set_carry_flag(&gb.cpu, lowest_bit_set);
-    set_zero_flag(&gb.cpu, result == 0);
+    set_carry_flag(&gb.cpu, r8_lsb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_msb_set = (r8_value & 0x80) != 0;
+    const r8_rest_unset = (r8_value & 0x7F) == 0;
+
+    const op_result = r8_value << 1;
+
+    store_r8(gb, instruction.r8, op_result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, r8_msb_set);
+    set_zero_flag(&gb.cpu, r8_rest_unset);
 }
 
 fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_msb = r8_value & 0x80;
+    const r8_lsb_set = (r8_value & 0x01) != 0;
+
+    const op_result = r8_value >> 1 | r8_msb;
+
+    store_r8(gb, instruction.r8, op_result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, r8_lsb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_swap_r8(gb: *GBState, instruction: instructions.swap_r8) void {
     const r8_value = load_r8(gb.*, instruction.r8);
-    const result = (r8_value & 0x0F << 4) | r8_value >> 4;
 
-    store_r8(gb, instruction.r8, result);
+    const op_result = (r8_value << 4) | (r8_value >> 4);
+
+    store_r8(gb, instruction.r8, op_result);
+
+    reset_flags(&gb.cpu);
+    set_zero_flag(&gb.cpu, r8_value == 0);
 }
 
 fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_lsb_set = (r8_value & 0x01) != 0;
+
+    const op_result = r8_value >> 1;
+
+    store_r8(gb, instruction.r8, op_result);
+
+    reset_flags(&gb.cpu);
+    set_carry_flag(&gb.cpu, r8_lsb_set);
+    set_zero_flag(&gb.cpu, op_result == 0);
 }
 
 fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+
+    const bit = @as(u8, 1) << instruction.bit_index;
+    const op_result = r8_value & bit;
+
+    gb.cpu.flags = .{
+        ._unused = 0,
+        .carry = gb.cpu.flags.carry,
+        .half_carry = 1,
+        .substract = 0,
+        .zero = if (op_result == 0) 1 else 0,
+    };
 }
 
 fn execute_res_b3_r8(gb: *GBState, instruction: instructions.res_b3_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+
+    const bit = @as(u8, 1) << instruction.bit_index;
+    const op_result = r8_value & ~bit;
+
+    store_r8(gb, instruction.r8, op_result);
 }
 
 fn execute_set_b3_r8(gb: *GBState, instruction: instructions.set_b3_r8) void {
-    _ = gb; // FIXME
-    _ = instruction;
+    const r8_value = load_r8(gb.*, instruction.r8);
+
+    const bit = @as(u8, 1) << instruction.bit_index;
+    const op_result = r8_value | bit;
+
+    store_r8(gb, instruction.r8, op_result);
 }
 
 fn execute_invalid_instruction(gb: *GBState) void {
