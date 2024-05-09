@@ -178,12 +178,55 @@ pub const IORegisters = packed struct {
     UNKNOWN5: u8, // = 0x75, // (8Fh) - Bit 4-6 (Read/Write)
     PCM12: u8, // = 0x76, // Channels 1 and 2 amplitudes
     PCM34: u8, // = 0x77, // Channels 3 and 4 amplitudes
+    _unused_78: u8,
+    _unused_79: u8,
+    _unused_7A: u8,
+    _unused_7B: u8,
+    _unused_7C: u8,
+    _unused_7D: u8,
+    _unused_7E: u8,
+    _unused_7F: u8,
+    _unused_80_4: u32,
+    _unused_84_4: u32,
+    _unused_88_4: u32,
+    _unused_8C_4: u32,
+    _unused_90_4: u32,
+    _unused_94_4: u32,
+    _unused_98_4: u32,
+    _unused_9C_4: u32,
+    _unused_A0_4: u32,
+    _unused_A4_4: u32,
+    _unused_A8_4: u32,
+    _unused_AC_4: u32,
+    _unused_B0_4: u32,
+    _unused_B4_4: u32,
+    _unused_B8_4: u32,
+    _unused_BC_4: u32,
+    _unused_C0_4: u32,
+    _unused_C4_4: u32,
+    _unused_C8_4: u32,
+    _unused_CC_4: u32,
+    _unused_D0_4: u32,
+    _unused_D4_4: u32,
+    _unused_D8_4: u32,
+    _unused_DC_4: u32,
+    _unused_E0_4: u32,
+    _unused_E4_4: u32,
+    _unused_E8_4: u32,
+    _unused_EC_4: u32,
+    _unused_F0_4: u32,
+    _unused_F4_4: u32,
+    _unused_F8_4: u32,
+    _unused_FC: u8,
+    _unused_FD: u8,
+    _unused_FE: u8,
+    IE: u8,
 };
 
 comptime {
-    std.debug.assert(@sizeOf(IORegisters) == 0x78);
     std.debug.assert(@offsetOf(IORegisters, "WAV_PATTERN_0") == 0x30);
     std.debug.assert(@offsetOf(IORegisters, "PCM34") == 0x77);
+    std.debug.assert(@sizeOf(IORegisters) == 256);
 }
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
@@ -193,38 +236,42 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     // FIXME
     std.mem.copyForwards(u8, memory, cart_rom_bytes);
 
-    // See http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
-    memory[0xFF05] = 0x00;
-    memory[0xFF06] = 0x00;
-    memory[0xFF07] = 0x00;
-    memory[0xFF10] = 0x80;
-    memory[0xFF11] = 0xBF;
-    memory[0xFF12] = 0xF3;
-    memory[0xFF14] = 0xBF;
-    memory[0xFF16] = 0x3F;
-    memory[0xFF17] = 0x00;
-    memory[0xFF19] = 0xBF;
-    memory[0xFF1A] = 0x7F;
-    memory[0xFF1B] = 0xFF;
-    memory[0xFF1C] = 0x9F;
-    memory[0xFF1E] = 0xBF;
-    memory[0xFF20] = 0xFF;
-    memory[0xFF21] = 0x00;
-    memory[0xFF22] = 0x00;
-    memory[0xFF23] = 0xBF;
-    memory[0xFF24] = 0x77;
-    memory[0xFF25] = 0xF3;
-    memory[0xFF26] = 0xF1;
-    memory[0xFF40] = 0x91;
-    memory[0xFF42] = 0x00;
-    memory[0xFF43] = 0x00;
-    memory[0xFF45] = 0x00;
-    memory[0xFF47] = 0xFC;
-    memory[0xFF48] = 0xFF;
-    memory[0xFF49] = 0xFF;
-    memory[0xFF4A] = 0x00;
-    memory[0xFF4B] = 0x00;
-    memory[0xFFFF] = 0x00;
+    const io_register_memory = memory[0xFF00..];
+    const io_registers: *IORegisters = @ptrCast(@alignCast(io_register_memory)); // FIXME remove alignCast!
+
+    // See this page for the initial state of the io registers:
+    // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
+    io_register_memory[0x05] = 0x00;
+    io_register_memory[0x06] = 0x00;
+    io_register_memory[0x07] = 0x00;
+    io_register_memory[0x10] = 0x80;
+    io_register_memory[0x11] = 0xBF;
+    io_register_memory[0x12] = 0xF3;
+    io_register_memory[0x14] = 0xBF;
+    io_register_memory[0x16] = 0x3F;
+    io_register_memory[0x17] = 0x00;
+    io_register_memory[0x19] = 0xBF;
+    io_register_memory[0x1A] = 0x7F;
+    io_register_memory[0x1B] = 0xFF;
+    io_register_memory[0x1C] = 0x9F;
+    io_register_memory[0x1E] = 0xBF;
+    io_register_memory[0x20] = 0xFF;
+    io_register_memory[0x21] = 0x00;
+    io_register_memory[0x22] = 0x00;
+    io_register_memory[0x23] = 0xBF;
+    io_register_memory[0x24] = 0x77;
+    io_register_memory[0x25] = 0xF3;
+    io_register_memory[0x26] = 0xF1;
+    io_register_memory[0x40] = 0x91;
+    io_register_memory[0x42] = 0x00;
+    io_register_memory[0x43] = 0x00;
+    io_register_memory[0x45] = 0x00;
+    io_register_memory[0x47] = 0xFC;
+    io_register_memory[0x48] = 0xFF;
+    io_register_memory[0x49] = 0xFF;
+    io_register_memory[0x4A] = 0x00;
+    io_register_memory[0x4B] = 0x00;
+    io_register_memory[0xFF] = 0x00;
 
     return GBState{
         .registers = @bitCast(Registers_R16{
@@ -236,7 +283,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .pc = 0x0100,
         }),
         .memory = memory,
-        .io_registers = @ptrCast(@alignCast(memory[0xFF00..0xFF78])), // FIXME remove alignCast!
+        .io_registers = io_registers,
         .enable_interrupts_master = false,
     };
 }

@@ -654,11 +654,19 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
 
 fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
     // FIXME here we can keep track of memory cycles
+
+    // NOTE: Avoid writing in the ROM
+    assert(address >= 0x8000);
+
     gb.memory[address] = value;
 }
 
 fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
     // FIXME here we can keep track of memory cycles
+
+    // NOTE: Avoid writing in the ROM
+    assert(address >= 0x8000);
+
     gb.memory[address] = @intCast(value & 0xff);
     gb.memory[address + 1] = @intCast(value >> 8);
 }
