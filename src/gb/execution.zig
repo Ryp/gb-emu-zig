@@ -238,9 +238,15 @@ fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
 }
 
 fn execute_jr_cond_imm8(gb: *GBState, instruction: instructions.jr_cond_imm8) void {
-    _ = gb; // FIXME
-    _ = instruction;
-    unreachable;
+    if (eval_cond(gb.registers, instruction.cond)) {
+        // FIXME careful with PC computation with the current way to increment it.
+        // FIXME Zig is weird about mixing unsigned and signed values, so the ugly ternary is what it is.
+        if (instruction.offset < 0) {
+            gb.registers.pc -= @intCast(-instruction.offset);
+        } else {
+            gb.registers.pc += @intCast(instruction.offset);
+        }
+    }
 }
 
 fn execute_stop(gb: *GBState) void {
@@ -707,6 +713,15 @@ fn store_r16(registers: *Registers, r16: R16, value: u16) void {
         .sp => registers_r16.sp = value,
         .pc => registers_r16.pc = value,
     }
+}
+
+fn eval_cond(registers: Registers, cond: instructions.Cond) bool {
+    return switch (cond) {
+        .nz => registers.flags.zero == 0,
+        .z => registers.flags.zero == 1,
+        .nc => registers.flags.carry == 0,
+        .c => registers.flags.carry == 1,
+    };
 }
 
 fn increment_hl(registers: *Registers, increment: bool) void {

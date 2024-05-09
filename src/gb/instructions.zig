@@ -61,11 +61,13 @@ pub fn decode(mem: []const u8) !Instruction {
     } else if (b0 == 0b0011_1111) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ccf = undefined } };
     } else if (b0 == 0b0001_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .jr_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .jr_imm8 = .{
+            .offset = @bitCast(mem[1]),
+        } } };
     } else if ((b0 & 0b1110_0111) == 0b0010_0000) {
         return Instruction{ .byte_len = 2, .encoding = .{ .jr_cond_imm8 = .{
             .cond = decode_cond(std.mem.readPackedInt(u2, mem, 3, gb_endian)),
-            .imm8 = mem[1],
+            .offset = @bitCast(mem[1]),
         } } };
     } else if (b0 == 0b0001_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .stop = undefined } }; // FIXME stuff about stop being 2 instructions
@@ -626,11 +628,13 @@ pub const ld_r8_imm8 = struct {
     imm8: u8,
 };
 
-pub const jr_imm8 = generic_imm8;
+pub const jr_imm8 = struct {
+    offset: i8,
+};
 
 pub const jr_cond_imm8 = struct {
     cond: Cond,
-    imm8: u8,
+    offset: i8,
 };
 
 pub const ld_r8_r8 = struct {
