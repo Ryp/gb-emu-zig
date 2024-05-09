@@ -102,7 +102,7 @@ fn execute_ld_r16mem_a(gb: *GBState, instruction: instructions.ld_r16mem_a) void
     const r16mem = instruction.r16mem;
     const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.memory[address] = gb.registers.a;
+    store_memory_u8(gb, address, gb.registers.a);
 
     if (r16mem.r16 == R16.hl) {
         increment_hl(&gb.registers, r16mem.increment);
@@ -114,7 +114,7 @@ fn execute_ld_a_r16mem(gb: *GBState, instruction: instructions.ld_a_r16mem) void
     const r16mem = instruction.r16mem;
     const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.registers.a = gb.memory[address];
+    gb.registers.a = load_memory_u8(gb, address);
 
     if (r16mem.r16 == R16.hl) {
         increment_hl(&gb.registers, r16mem.increment);
@@ -123,12 +123,7 @@ fn execute_ld_a_r16mem(gb: *GBState, instruction: instructions.ld_a_r16mem) void
 }
 
 fn execute_ld_imm16_sp(gb: *GBState, instruction: instructions.ld_imm16_sp) void {
-    const address = instruction.imm16;
-
-    // FIXME
-    gb.memory[address] = @intCast(gb.registers.sp & 0xff);
-    gb.memory[address + 1] = @intCast(gb.registers.sp >> 8);
-    unreachable;
+    store_memory_u16(gb, instruction.imm16, gb.registers.sp);
 }
 
 fn execute_inc_r16(gb: *GBState, instruction: instructions.inc_r16) void {
@@ -258,10 +253,10 @@ fn execute_halt(gb: *GBState) void {
 }
 
 fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
-    const carry = @as(u16, gb.registers.a) + @as(u16, r8_value) > 0xFF;
-    const half_carry = (gb.registers.a & 0xF) + (r8_value & 0xF) > 0xF;
+    const carry = @as(u16, gb.registers.a) + @as(u16, r8_value) > 0xff;
+    const half_carry = (gb.registers.a & 0xf) + (r8_value & 0xf) > 0xf;
 
     gb.registers.a +%= r8_value;
 
@@ -290,7 +285,7 @@ fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
 }
 
 fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     gb.registers.a &= r8_value;
 
@@ -300,7 +295,7 @@ fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
 }
 
 fn execute_xor_a_r8(gb: *GBState, instruction: instructions.xor_a_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     gb.registers.a ^= r8_value;
 
@@ -309,7 +304,7 @@ fn execute_xor_a_r8(gb: *GBState, instruction: instructions.xor_a_r8) void {
 }
 
 fn execute_or_a_r8(gb: *GBState, instruction: instructions.or_a_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     gb.registers.a |= r8_value;
 
@@ -498,7 +493,7 @@ fn execute_ei(gb: *GBState) void {
 }
 
 fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_msb_set = (r8_value & 0x80) != 0;
 
     const op_result = std.math.rotl(u8, r8_value, 1);
@@ -511,7 +506,7 @@ fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
 }
 
 fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_lsb_set = (r8_value & 0x01) != 0;
 
     const op_result = std.math.rotr(u8, r8_value, 1);
@@ -524,7 +519,7 @@ fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
 }
 
 fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_msb_set = (r8_value & 0x80) != 0;
 
     const op_result = r8_value << 1 | gb.registers.flags.carry;
@@ -537,7 +532,7 @@ fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
 }
 
 fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_lsb_set = (r8_value & 0x01) != 0;
 
     const op_result = r8_value >> 1 | @as(u8, gb.registers.flags.carry) << 7;
@@ -550,7 +545,7 @@ fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
 }
 
 fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_msb_set = (r8_value & 0x80) != 0;
     const r8_rest_unset = (r8_value & 0x7F) == 0;
 
@@ -564,7 +559,7 @@ fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
 }
 
 fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_msb = r8_value & 0x80;
     const r8_lsb_set = (r8_value & 0x01) != 0;
 
@@ -578,7 +573,7 @@ fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
 }
 
 fn execute_swap_r8(gb: *GBState, instruction: instructions.swap_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     const op_result = (r8_value << 4) | (r8_value >> 4);
 
@@ -589,7 +584,7 @@ fn execute_swap_r8(gb: *GBState, instruction: instructions.swap_r8) void {
 }
 
 fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
     const r8_lsb_set = (r8_value & 0x01) != 0;
 
     const op_result = r8_value >> 1;
@@ -602,7 +597,7 @@ fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
 }
 
 fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     const bit = @as(u8, 1) << instruction.bit_index;
     const op_result = r8_value & bit;
@@ -617,7 +612,7 @@ fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
 }
 
 fn execute_res_b3_r8(gb: *GBState, instruction: instructions.res_b3_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     const bit = @as(u8, 1) << instruction.bit_index;
     const op_result = r8_value & ~bit;
@@ -626,7 +621,7 @@ fn execute_res_b3_r8(gb: *GBState, instruction: instructions.res_b3_r8) void {
 }
 
 fn execute_set_b3_r8(gb: *GBState, instruction: instructions.set_b3_r8) void {
-    const r8_value = load_r8(gb.*, instruction.r8);
+    const r8_value = load_r8(gb, instruction.r8);
 
     const bit = @as(u8, 1) << instruction.bit_index;
     const op_result = r8_value | bit;
@@ -639,7 +634,23 @@ fn execute_invalid_instruction(gb: *GBState) void {
     unreachable; // FIXME
 }
 
-fn load_r8(gb: GBState, r8: R8) u8 {
+fn load_memory_u8(gb: *GBState, address: u16) u8 {
+    // FIXME here we can keep track of memory cycles
+    return gb.memory[address];
+}
+
+fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
+    // FIXME here we can keep track of memory cycles
+    gb.memory[address] = value;
+}
+
+fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
+    // FIXME here we can keep track of memory cycles
+    gb.memory[address] = @intCast(value & 0xff);
+    gb.memory[address + 1] = @intCast(value >> 8);
+}
+
+fn load_r8(gb: *GBState, r8: R8) u8 {
     return switch (r8) {
         .b => gb.registers.b,
         .c => gb.registers.c,
@@ -647,7 +658,7 @@ fn load_r8(gb: GBState, r8: R8) u8 {
         .e => gb.registers.e,
         .h => gb.registers.h,
         .l => gb.registers.l,
-        .hl_p => gb.memory[load_r16(gb.registers, R16.hl)],
+        .hl_p => load_memory_u8(gb, load_r16(gb.registers, R16.hl)),
         .a => gb.registers.l,
     };
 }
@@ -660,7 +671,7 @@ fn store_r8(gb: *GBState, r8: R8, value: u8) void {
         .e => gb.registers.e = value,
         .h => gb.registers.h = value,
         .l => gb.registers.l = value,
-        .hl_p => gb.memory[load_r16(gb.registers, R16.hl)] = value,
+        .hl_p => store_memory_u8(gb, load_r16(gb.registers, R16.hl), value),
         .a => gb.registers.l = value,
     }
 }
