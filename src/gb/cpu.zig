@@ -3,7 +3,7 @@ const std = @import("std");
 pub const GBState = struct {
     registers: Registers,
     memory: []u8,
-    memory_registers: *MemoryRegisters,
+    io_registers: *IORegisters,
     enable_interrupts_master: bool,
 };
 
@@ -67,7 +67,7 @@ comptime {
     std.debug.assert(@offsetOf(Registers_R16, "sp") == 8);
 }
 
-pub const MemoryRegisters = packed struct {
+pub const IORegisters = packed struct {
     JOYP: u8, //= 0x00, // Joypad (R/W)
     SB: u8, //= 0x01, // Serial transfer data (R/W)
     SC: u8, //= 0x02, // Serial Transfer Control (R/W)
@@ -181,9 +181,9 @@ pub const MemoryRegisters = packed struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(MemoryRegisters) == 0x78);
-    std.debug.assert(@offsetOf(MemoryRegisters, "WAV_PATTERN_0") == 0x30);
-    std.debug.assert(@offsetOf(MemoryRegisters, "PCM34") == 0x77);
+    std.debug.assert(@sizeOf(IORegisters) == 0x78);
+    std.debug.assert(@offsetOf(IORegisters, "WAV_PATTERN_0") == 0x30);
+    std.debug.assert(@offsetOf(IORegisters, "PCM34") == 0x77);
 }
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
@@ -236,7 +236,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .pc = 0x0100,
         }),
         .memory = memory,
-        .memory_registers = @ptrCast(@alignCast(memory[0xFF00..0xFF78])), // FIXME remove alignCast!
+        .io_registers = @ptrCast(@alignCast(memory[0xFF00..0xFF78])), // FIXME remove alignCast!
         .enable_interrupts_master = false,
     };
 }

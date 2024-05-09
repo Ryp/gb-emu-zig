@@ -30,6 +30,7 @@ pub fn main() !void {
     };
     defer file.close();
 
+    // FIXME I don't support ROMs with swappable address space
     var buffer: [1024 * 4]u8 = undefined; // FIXME
     const rom_bytes = try file.read(buffer[0..buffer.len]);
 

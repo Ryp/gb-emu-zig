@@ -136,7 +136,7 @@ fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
 }
 
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
@@ -148,7 +148,7 @@ fn execute_inc_r8(gb: *GBState, instruction: instructions.inc_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    set_half_carry_flag(&gb.registers, (op_result & 0xF) == 0);
+    set_half_carry_flag(&gb.registers, (op_result & 0xf) == 0);
     set_substract_flag(&gb.registers, false);
     set_zero_flag(&gb.registers, op_result == 0);
 }
@@ -160,7 +160,7 @@ fn execute_dec_r8(gb: *GBState, instruction: instructions.dec_r8) void {
 
     store_r8(gb, instruction.r8, op_result);
 
-    set_half_carry_flag(&gb.registers, (r8_value & 0xF) == 0);
+    set_half_carry_flag(&gb.registers, (r8_value & 0xf) == 0);
     set_substract_flag(&gb.registers, true);
     set_zero_flag(&gb.registers, op_result == 0);
 }
@@ -206,7 +206,7 @@ fn execute_rra(gb: *GBState) void {
 }
 
 fn execute_daa(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
@@ -232,7 +232,7 @@ fn execute_ccf(gb: *GBState) void {
 }
 
 fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
@@ -250,18 +250,18 @@ fn execute_jr_cond_imm8(gb: *GBState, instruction: instructions.jr_cond_imm8) vo
 }
 
 fn execute_stop(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
 fn execute_ld_r8_r8(gb: *GBState, instruction: instructions.ld_r8_r8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_halt(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
@@ -271,6 +271,7 @@ fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
     const carry = @as(u16, gb.registers.a) + @as(u16, r8_value) > 0xff;
     const half_carry = (gb.registers.a & 0xf) + (r8_value & 0xf) > 0xf;
 
+    // We could try to use addWithOverflow to set the carry
     gb.registers.a +%= r8_value;
 
     reset_flags(&gb.registers);
@@ -280,19 +281,19 @@ fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
 }
 
 fn execute_adc_a_r8(gb: *GBState, instruction: instructions.adc_a_r8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_sub_a_r8(gb: *GBState, instruction: instructions.sub_a_r8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
@@ -326,31 +327,31 @@ fn execute_or_a_r8(gb: *GBState, instruction: instructions.or_a_r8) void {
 }
 
 fn execute_cp_a_r8(gb: *GBState, instruction: instructions.cp_a_r8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_add_a_imm8(gb: *GBState, instruction: instructions.add_a_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_adc_a_imm8(gb: *GBState, instruction: instructions.adc_a_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_sub_a_imm8(gb: *GBState, instruction: instructions.sub_a_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_sbc_a_imm8(gb: *GBState, instruction: instructions.sbc_a_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
@@ -384,23 +385,23 @@ fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
 }
 
 fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_ret(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
 fn execute_reti(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
 fn execute_jp_cond_imm16(gb: *GBState, instruction: instructions.jp_cond_imm16) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
@@ -410,42 +411,42 @@ fn execute_jp_imm16(gb: *GBState, instruction: instructions.jp_imm16) void {
 }
 
 fn execute_jp_hl(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
 fn execute_call_cond_imm16(gb: *GBState, instruction: instructions.call_cond_imm16) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_pop_r16stk(gb: *GBState, instruction: instructions.pop_r16stk) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_push_r16stk(gb: *GBState, instruction: instructions.push_r16stk) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_ldh_c_a(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
@@ -456,13 +457,13 @@ fn execute_ldh_imm8_a(gb: *GBState, instruction: instructions.ldh_imm8_a) void {
 }
 
 fn execute_ld_imm16_a(gb: *GBState, instruction: instructions.ld_imm16_a) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_ldh_a_c(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
@@ -473,25 +474,25 @@ fn execute_ldh_a_imm8(gb: *GBState, instruction: instructions.ldh_a_imm8) void {
 }
 
 fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_ld_hl_sp_plus_imm8(gb: *GBState, instruction: instructions.ld_hl_sp_plus_imm8) void {
-    _ = gb; // FIXME
+    _ = gb;
     _ = instruction;
     unreachable;
 }
 
 fn execute_ld_sp_hl(gb: *GBState) void {
-    _ = gb; // FIXME
+    _ = gb;
     unreachable;
 }
 
@@ -643,7 +644,7 @@ fn execute_set_b3_r8(gb: *GBState, instruction: instructions.set_b3_r8) void {
 
 fn execute_invalid_instruction(gb: *GBState) void {
     _ = gb;
-    unreachable; // FIXME
+    unreachable;
 }
 
 fn load_memory_u8(gb: *GBState, address: u16) u8 {
