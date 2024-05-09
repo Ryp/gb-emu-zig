@@ -496,13 +496,12 @@ fn execute_ld_sp_hl(gb: *GBState) void {
 }
 
 fn execute_di(gb: *GBState) void {
-    _ = gb; // FIXME
-    unreachable;
+    gb.enable_interrupts_master = false;
 }
 
 fn execute_ei(gb: *GBState) void {
-    _ = gb; // FIXME
-    unreachable;
+    // FIXME apparently we have to wait 1 op before actually turning this on
+    gb.enable_interrupts_master = true;
 }
 
 fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {

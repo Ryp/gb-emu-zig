@@ -3,6 +3,7 @@ const std = @import("std");
 pub const GBState = struct {
     registers: Registers,
     memory: []u8,
+    enable_interrupts_master: bool,
 };
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
@@ -115,6 +116,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .pc = 0x0100,
         }),
         .memory = memory,
+        .enable_interrupts_master = false,
     };
 }
 
