@@ -672,7 +672,7 @@ fn load_r8(gb: *GBState, r8: R8) u8 {
         .h => gb.registers.h,
         .l => gb.registers.l,
         .hl_p => load_memory_u8(gb, load_r16(gb.registers, R16.hl)),
-        .a => gb.registers.l,
+        .a => gb.registers.a,
     };
 }
 
@@ -685,7 +685,7 @@ fn store_r8(gb: *GBState, r8: R8, value: u8) void {
         .h => gb.registers.h = value,
         .l => gb.registers.l = value,
         .hl_p => store_memory_u8(gb, load_r16(gb.registers, R16.hl), value),
-        .a => gb.registers.l = value,
+        .a => gb.registers.a = value,
     }
 }
 
@@ -698,7 +698,6 @@ fn load_r16(registers: Registers, r16: R16) u16 {
         .hl => registers_r16.hl,
         .af => registers_r16.af,
         .sp => registers_r16.sp,
-        .pc => registers_r16.pc,
     };
 }
 
@@ -711,7 +710,6 @@ fn store_r16(registers: *Registers, r16: R16, value: u16) void {
         .hl => registers_r16.hl = value,
         .af => registers_r16.af = value,
         .sp => registers_r16.sp = value,
-        .pc => registers_r16.pc = value,
     }
 }
 

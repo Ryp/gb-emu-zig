@@ -36,9 +36,13 @@ pub fn decode(mem: []const u8) !Instruction {
             .r16 = decode_r16(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
         } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0100) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .inc_r8 = undefined } };
+        return Instruction{ .byte_len = 1, .encoding = .{ .inc_r8 = .{
+            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+        } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0101) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .dec_r8 = undefined } };
+        return Instruction{ .byte_len = 1, .encoding = .{ .dec_r8 = .{
+            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+        } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0110) {
         return Instruction{ .byte_len = 2, .encoding = .{ .ld_r8_imm8 = .{
             .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
@@ -522,7 +526,6 @@ pub const R16 = enum {
     hl,
     af,
     sp,
-    pc,
 };
 
 fn decode_r16(r16: u2) R16 {
