@@ -12,7 +12,9 @@ test {
 
     const allocator = gpa.allocator();
 
-    var gb_state = try cpu.create_state(allocator);
+    const rom_bytes = [2]u8{ 3, 3 };
+
+    var gb_state = try cpu.create_state(allocator, &rom_bytes);
     defer cpu.destroy_state(allocator, &gb_state);
 
     try expectEqual(0x00, gb_state.registers.b);

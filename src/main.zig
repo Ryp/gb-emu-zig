@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const gb = @import("gb/cpu.zig");
-// const sdl2 = @import("sdl2_frontend.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 
@@ -17,26 +16,38 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(gpa_allocator);
     defer std.process.argsFree(gpa_allocator, args);
 
-    // assert(args.len == 2);
+    if (args.len < 2) {
+        std.debug.print("error: missing ROM filename\n", .{});
+        return error.MissingArgument;
+    }
 
-    var gb_state = try gb.create_state(gpa_allocator);
+    const rom_filename = args[1];
+
+    // FIXME What the idiomatic way of writing this?
+    var file = if (std.fs.cwd().openFile(rom_filename, .{})) |f| f else |err| {
+        std.debug.print("error: couldn't open ROM file: '{s}'\n", .{rom_filename});
+        return err;
+    };
+    defer file.close();
+
+    var buffer: [1024 * 4]u8 = undefined; // FIXME
+    const rom_bytes = try file.read(buffer[0..buffer.len]);
+
+    var gb_state = try gb.create_state(gpa_allocator, buffer[0..rom_bytes]);
     defer gb.destroy_state(gpa_allocator, &gb_state);
 
-    // try sdl2.execute_main_loop(gpa_allocator, &gb_state);
-
-    gb_state.mem[gb_state.registers.pc + 0] = 0b00110001;
-    gb_state.mem[gb_state.registers.pc + 1] = 0b11001101;
-    gb_state.mem[gb_state.registers.pc + 2] = 0b00110111;
-
-    std.debug.print("gb emu\n", .{});
-
-    while (gb_state.running) {
+    while (true) {
         std.debug.print("loop: pc = {}\n", .{gb_state.registers.pc});
 
         const i = try instructions.decode(gb_state.mem[gb_state.registers.pc..]);
 
-        execution.execute_instruction(&gb_state, i);
+        const i_mem = gb_state.mem[gb_state.registers.pc .. gb_state.registers.pc + i.byte_len];
+        std.debug.print("[debug] op bytes = {b:8}, {x:2}\n", .{ i_mem, i_mem });
+
+        instructions.debug_print(i);
 
         gb_state.registers.pc += i.byte_len;
+
+        execution.execute_instruction(&gb_state, i);
     }
 }

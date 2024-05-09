@@ -3,7 +3,6 @@ const std = @import("std");
 pub const GBState = struct {
     registers: Registers,
     mem: []u8,
-    running: bool,
 };
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
@@ -66,9 +65,12 @@ comptime {
     std.debug.assert(@offsetOf(Registers_R16, "sp") == 8);
 }
 
-pub fn create_state(allocator: std.mem.Allocator) !GBState {
-    const mem = try allocator.alloc(u8, 256 * 256);
+pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
+    const mem = try allocator.alloc(u8, 256 * 256); // FIXME
     errdefer allocator.free(mem);
+
+    // FIXME
+    std.mem.copyForwards(u8, mem, cart_rom_bytes);
 
     return GBState{
         .registers = @bitCast(Registers_R16{
@@ -80,7 +82,6 @@ pub fn create_state(allocator: std.mem.Allocator) !GBState {
             .pc = 0x0100,
         }),
         .mem = mem,
-        .running = true,
     };
 }
 
