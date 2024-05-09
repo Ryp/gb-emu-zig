@@ -39,9 +39,9 @@ pub fn main() !void {
     while (true) {
         std.debug.print("loop: pc = {}\n", .{gb_state.registers.pc});
 
-        const i = try instructions.decode(gb_state.mem[gb_state.registers.pc..]);
+        const i = try instructions.decode(gb_state.memory[gb_state.registers.pc..]);
 
-        const i_mem = gb_state.mem[gb_state.registers.pc .. gb_state.registers.pc + i.byte_len];
+        const i_mem = gb_state.memory[gb_state.registers.pc .. gb_state.registers.pc + i.byte_len];
         std.debug.print("[debug] op bytes = {b:8}, {x:2}\n", .{ i_mem, i_mem });
 
         instructions.debug_print(i);

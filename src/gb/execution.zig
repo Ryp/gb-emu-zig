@@ -102,7 +102,7 @@ fn execute_ld_r16mem_a(gb: *GBState, instruction: instructions.ld_r16mem_a) void
     const r16mem = instruction.r16mem;
     const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.mem[address] = gb.registers.a;
+    gb.memory[address] = gb.registers.a;
 
     if (r16mem.r16 == R16.hl) {
         increment_hl(&gb.registers, r16mem.increment);
@@ -114,7 +114,7 @@ fn execute_ld_a_r16mem(gb: *GBState, instruction: instructions.ld_a_r16mem) void
     const r16mem = instruction.r16mem;
     const address = load_r16(gb.registers, r16mem.r16);
 
-    gb.registers.a = gb.mem[address];
+    gb.registers.a = gb.memory[address];
 
     if (r16mem.r16 == R16.hl) {
         increment_hl(&gb.registers, r16mem.increment);
@@ -126,8 +126,8 @@ fn execute_ld_imm16_sp(gb: *GBState, instruction: instructions.ld_imm16_sp) void
     const address = instruction.imm16;
 
     // FIXME
-    gb.mem[address] = @intCast(gb.registers.sp & 0xff);
-    gb.mem[address + 1] = @intCast(gb.registers.sp >> 8);
+    gb.memory[address] = @intCast(gb.registers.sp & 0xff);
+    gb.memory[address + 1] = @intCast(gb.registers.sp >> 8);
     unreachable;
 }
 
@@ -647,7 +647,7 @@ fn load_r8(gb: GBState, r8: R8) u8 {
         .e => gb.registers.e,
         .h => gb.registers.h,
         .l => gb.registers.l,
-        .hl_p => gb.mem[load_r16(gb.registers, R16.hl)],
+        .hl_p => gb.memory[load_r16(gb.registers, R16.hl)],
         .a => gb.registers.l,
     };
 }
@@ -660,7 +660,7 @@ fn store_r8(gb: *GBState, r8: R8, value: u8) void {
         .e => gb.registers.e = value,
         .h => gb.registers.h = value,
         .l => gb.registers.l = value,
-        .hl_p => gb.mem[load_r16(gb.registers, R16.hl)] = value,
+        .hl_p => gb.memory[load_r16(gb.registers, R16.hl)] = value,
         .a => gb.registers.l = value,
     }
 }

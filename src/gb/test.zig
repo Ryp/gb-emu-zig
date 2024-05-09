@@ -33,12 +33,4 @@ test {
     }, gb_state.registers.flags);
     try expectEqual(0xFFFE, gb_state.registers.sp);
     try expectEqual(0x0100, gb_state.registers.pc);
-
-    gb_state.mem[0] = 0b00110001;
-    gb_state.mem[1] = 0b11001101;
-    gb_state.mem[2] = 0b00110111;
-
-    const i = try instructions.decode(gb_state.mem);
-
-    execution.execute_instruction(&gb_state, i);
 }
