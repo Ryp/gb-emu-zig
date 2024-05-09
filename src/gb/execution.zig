@@ -379,9 +379,10 @@ fn execute_or_a_imm8(gb: *GBState, instruction: instructions.or_a_imm8) void {
 }
 
 fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
-    _ = gb; // FIXME
-    _ = instruction;
-    unreachable;
+    set_carry_flag(&gb.registers, gb.registers.a < instruction.imm8);
+    set_half_carry_flag(&gb.registers, (gb.registers.a & 0xf) < (instruction.imm8 & 0xf));
+    set_substract_flag(&gb.registers, true);
+    set_zero_flag(&gb.registers, gb.registers.a == instruction.imm8);
 }
 
 fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
@@ -445,15 +446,15 @@ fn execute_push_r16stk(gb: *GBState, instruction: instructions.push_r16stk) void
     unreachable;
 }
 
+const LDH_OFFSET: u16 = 0xff00;
+
 fn execute_ldh_c_a(gb: *GBState) void {
     _ = gb;
     unreachable;
 }
 
 fn execute_ldh_imm8_a(gb: *GBState, instruction: instructions.ldh_imm8_a) void {
-    _ = gb; // FIXME
-    _ = instruction;
-    unreachable;
+    store_memory_u8(gb, LDH_OFFSET + instruction.imm8, gb.registers.a);
 }
 
 fn execute_ld_imm16_a(gb: *GBState, instruction: instructions.ld_imm16_a) void {
@@ -468,9 +469,7 @@ fn execute_ldh_a_c(gb: *GBState) void {
 }
 
 fn execute_ldh_a_imm8(gb: *GBState, instruction: instructions.ldh_a_imm8) void {
-    _ = gb; // FIXME
-    _ = instruction;
-    unreachable;
+    gb.registers.a = load_memory_u8(gb, LDH_OFFSET + instruction.imm8);
 }
 
 fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
