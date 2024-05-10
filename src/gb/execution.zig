@@ -239,12 +239,11 @@ fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
 
 fn execute_jr_cond_imm8(gb: *GBState, instruction: instructions.jr_cond_imm8) void {
     if (eval_cond(gb.registers, instruction.cond)) {
-        // FIXME careful with PC computation with the current way to increment it.
         // FIXME Zig is weird about mixing unsigned and signed values, so the ugly ternary is what it is.
         if (instruction.offset < 0) {
-            gb.registers.pc -= @intCast(-instruction.offset);
+            store_pc(gb, gb.registers.pc - @as(u16, @intCast(-instruction.offset)));
         } else {
-            gb.registers.pc += @intCast(instruction.offset);
+            store_pc(gb, gb.registers.pc + @as(u16, @intCast(instruction.offset)));
         }
     }
 }
@@ -408,7 +407,7 @@ fn execute_jp_cond_imm16(gb: *GBState, instruction: instructions.jp_cond_imm16) 
 }
 
 fn execute_jp_imm16(gb: *GBState, instruction: instructions.jp_imm16) void {
-    gb.registers.pc = instruction.imm16;
+    store_pc(gb, instruction.imm16);
 }
 
 fn execute_jp_hl(gb: *GBState) void {
@@ -647,27 +646,34 @@ fn execute_invalid_instruction(gb: *GBState) void {
 }
 
 fn load_memory_u8(gb: *GBState, address: u16) u8 {
-    // FIXME here we can keep track of memory cycles
+    gb.pending_cycles += 4;
+
     return gb.memory[address];
 }
 
 fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
-    // FIXME here we can keep track of memory cycles
-
     // NOTE: Avoid writing in the ROM
     assert(address >= 0x8000);
 
     gb.memory[address] = value;
+
+    gb.pending_cycles += 4;
 }
 
 fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
-    // FIXME here we can keep track of memory cycles
-
     // NOTE: Avoid writing in the ROM
     assert(address >= 0x8000);
 
     gb.memory[address] = @intCast(value & 0xff);
     gb.memory[address + 1] = @intCast(value >> 8);
+
+    gb.pending_cycles += 8;
+}
+
+fn store_pc(gb: *GBState, value: u16) void {
+    gb.registers.pc = value;
+
+    gb.pending_cycles += 4;
 }
 
 fn load_r8(gb: *GBState, r8: R8) u8 {

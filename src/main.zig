@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const gb = @import("gb/cpu.zig");
+const cpu = @import("gb/cpu.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 
@@ -34,33 +34,54 @@ pub fn main() !void {
     var buffer: [256 * 128]u8 = undefined; // FIXME
     const rom_bytes = try file.read(buffer[0..buffer.len]);
 
-    var gb_state = try gb.create_state(gpa_allocator, buffer[0..rom_bytes]);
-    defer gb.destroy_state(gpa_allocator, &gb_state);
+    var gb = try cpu.create_state(gpa_allocator, buffer[0..rom_bytes]);
+    defer cpu.destroy_state(gpa_allocator, &gb);
 
     while (true) {
-        std.debug.print("===================================\n", .{});
-        std.debug.print("====| PC = {x:4}, SP = {x:4}\n", .{ gb_state.registers.pc, gb_state.registers.sp });
-        std.debug.print("====| A = {x:2}, Flags: {s} {s} {s} {s}\n", .{
-            gb_state.registers.a,
-            if (gb_state.registers.flags.zero == 1) "Z" else "_",
-            if (gb_state.registers.flags.substract == 1) "N" else "_",
-            if (gb_state.registers.flags.half_carry == 1) "H" else "_",
-            if (gb_state.registers.flags.carry == 1) "C" else "_",
-        });
-        std.debug.print("====| B = {x:2}, C = {x:2}\n", .{ gb_state.registers.b, gb_state.registers.c });
-        std.debug.print("====| D = {x:2}, E = {x:2}\n", .{ gb_state.registers.d, gb_state.registers.e });
-        std.debug.print("====| H = {x:2}, L = {x:2}\n", .{ gb_state.registers.h, gb_state.registers.l });
-        std.debug.print("===================================\n", .{});
-
-        const i = try instructions.decode(gb_state.memory[gb_state.registers.pc..]);
-
-        const i_mem = gb_state.memory[gb_state.registers.pc .. gb_state.registers.pc + i.byte_len];
-        std.debug.print("[debug] op bytes = {b:8}, {x:2}\n", .{ i_mem, i_mem });
-
-        instructions.debug_print(i);
-
-        gb_state.registers.pc += i.byte_len;
-
-        execution.execute_instruction(&gb_state, i);
+        try step(&gb);
     }
+}
+
+fn step(gb: *cpu.GBState) !void {
+    print_register_debug(gb.registers);
+    const i = try instructions.decode(gb.memory[gb.registers.pc..]);
+
+    const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + i.byte_len];
+    std.debug.print("[debug] op bytes = {b:8}, {x:2}\n", .{ i_mem, i_mem });
+
+    instructions.debug_print(i);
+
+    gb.registers.pc += i.byte_len;
+
+    execution.execute_instruction(gb, i);
+
+    // We're decoding all instructions fully before executing them.
+    // Each byte read actually makes the CPU spin another 4 cycles, so we can just
+    // add them here after the fact
+    gb.pending_cycles += @as(u8, i.byte_len) * 4;
+
+    consume_cycles(gb);
+}
+
+fn consume_cycles(gb: *cpu.GBState) void {
+    gb.total_cycles += gb.pending_cycles;
+
+    std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
+    gb.pending_cycles = 0; // FIXME
+}
+
+fn print_register_debug(registers: cpu.Registers) void {
+    std.debug.print("===================================\n", .{});
+    std.debug.print("====| PC = {x:4}, SP = {x:4}\n", .{ registers.pc, registers.sp });
+    std.debug.print("====| A = {x:2}, Flags: {s} {s} {s} {s}\n", .{
+        registers.a,
+        if (registers.flags.zero == 1) "Z" else "_",
+        if (registers.flags.substract == 1) "N" else "_",
+        if (registers.flags.half_carry == 1) "H" else "_",
+        if (registers.flags.carry == 1) "C" else "_",
+    });
+    std.debug.print("====| B = {x:2}, C = {x:2}\n", .{ registers.b, registers.c });
+    std.debug.print("====| D = {x:2}, E = {x:2}\n", .{ registers.d, registers.e });
+    std.debug.print("====| H = {x:2}, L = {x:2}\n", .{ registers.h, registers.l });
+    std.debug.print("===================================\n", .{});
 }

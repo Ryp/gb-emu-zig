@@ -5,6 +5,8 @@ pub const GBState = struct {
     memory: []u8,
     io_registers: *IORegisters,
     enable_interrupts_master: bool,
+    pending_cycles: u8,
+    total_cycles: u64,
 };
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
@@ -285,6 +287,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .memory = memory,
         .io_registers = io_registers,
         .enable_interrupts_master = false,
+        .pending_cycles = 0, // In T-states
+        .total_cycles = 0, // In T-states
     };
 }
 
