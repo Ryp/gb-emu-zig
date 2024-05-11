@@ -44,21 +44,23 @@ pub fn main() !void {
 
 fn step(gb: *cpu.GBState) !void {
     print_register_debug(gb.registers);
-    const i = try instructions.decode(gb.memory[gb.registers.pc..]);
+    const current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
 
-    const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + i.byte_len];
-    std.debug.print("[debug] op bytes = {b:8}, {x:2}\n", .{ i_mem, i_mem });
+    const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
+    std.debug.print("[debug] op bytes = {b:0>8}, {x:0>2}\n", .{ i_mem, i_mem });
 
-    instructions.debug_print(i);
+    instructions.debug_print(current_instruction);
 
-    gb.registers.pc += i.byte_len;
+    // Normally this would take some cycles to complete, but we take this into account
+    // a tiny bit later.
+    gb.registers.pc += current_instruction.byte_len;
 
-    execution.execute_instruction(gb, i);
+    execution.execute_instruction(gb, current_instruction);
 
     // We're decoding all instructions fully before executing them.
     // Each byte read actually makes the CPU spin another 4 cycles, so we can just
     // add them here after the fact
-    gb.pending_cycles += @as(u8, i.byte_len) * 4;
+    gb.pending_cycles += @as(u8, current_instruction.byte_len) * 4;
 
     consume_cycles(gb);
 }
@@ -72,16 +74,16 @@ fn consume_cycles(gb: *cpu.GBState) void {
 
 fn print_register_debug(registers: cpu.Registers) void {
     std.debug.print("===================================\n", .{});
-    std.debug.print("====| PC = {x:4}, SP = {x:4}\n", .{ registers.pc, registers.sp });
-    std.debug.print("====| A = {x:2}, Flags: {s} {s} {s} {s}\n", .{
+    std.debug.print("====| PC = {x:0>4}, SP = {x:0>4}\n", .{ registers.pc, registers.sp });
+    std.debug.print("====| A = {x:0>2}, Flags: {s} {s} {s} {s}\n", .{
         registers.a,
         if (registers.flags.zero == 1) "Z" else "_",
         if (registers.flags.substract == 1) "N" else "_",
         if (registers.flags.half_carry == 1) "H" else "_",
         if (registers.flags.carry == 1) "C" else "_",
     });
-    std.debug.print("====| B = {x:2}, C = {x:2}\n", .{ registers.b, registers.c });
-    std.debug.print("====| D = {x:2}, E = {x:2}\n", .{ registers.d, registers.e });
-    std.debug.print("====| H = {x:2}, L = {x:2}\n", .{ registers.h, registers.l });
+    std.debug.print("====| B = {x:0>2}, C = {x:0>2}\n", .{ registers.b, registers.c });
+    std.debug.print("====| D = {x:0>2}, E = {x:0>2}\n", .{ registers.d, registers.e });
+    std.debug.print("====| H = {x:0>2}, L = {x:0>2}\n", .{ registers.h, registers.l });
     std.debug.print("===================================\n", .{});
 }
