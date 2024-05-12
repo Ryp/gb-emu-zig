@@ -45,7 +45,27 @@ pub fn main() !void {
 
 fn step(gb: *cpu.GBState) !void {
     print_register_debug(gb.registers);
-    const current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
+
+    const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
+
+    var current_instruction: instructions.Instruction = undefined;
+
+    // Service interrupts
+    if (gb.enable_interrupts_master and interrupt_mask_to_service != 0) {
+        const interrupt_bit_index = @ctz(interrupt_mask_to_service); // First set bit gets priority
+        const interrupt_bit_mask: u5 = @intCast(@as(u16, 1) << interrupt_bit_index);
+        const interrupt_jump_address: u8 = 0x40 + @as(u8, interrupt_bit_index) * 0x08;
+
+        gb.mmio.IF.requested_interrupts_mask &= ~interrupt_bit_mask; // Mark current interrupt as serviced
+        gb.enable_interrupts_master = false; // Disable interrupts while we service them
+
+        // FIXME check how 'byte_len' intereferes with clock timing
+        current_instruction = instructions.Instruction{ .byte_len = 0, .encoding = .{ .call_imm16 = .{
+            .imm16 = interrupt_jump_address,
+        } } };
+    } else {
+        current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
+    }
 
     const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
     std.debug.print("[debug] op bytes = {b:0>8}, {x:0>2}\n", .{ i_mem, i_mem });

@@ -7,7 +7,7 @@ pub const GBState = struct {
     registers: Registers,
     memory: []u8,
     mmio: *MMIO,
-    enable_interrupts_master: bool,
+    enable_interrupts_master: bool, // IME
     screen_x: u8,
     screen_output: []u8,
     pending_cycles: u8,
@@ -91,11 +91,7 @@ pub const MMIO = packed struct {
     _unused_0D: u8,
     _unused_0E: u8,
     IF: packed struct { //= 0x0F, // Interrupt Flag (R/W)
-        vblank_interrupt_requested: bool,
-        lcd_interrupt_requested: bool,
-        timer_interrupt_requested: bool,
-        serial_interrupt_requested: bool,
-        joypad_interrupt_requested: bool,
+        requested_interrupts_mask: u5,
         _unused: u3,
     },
     sound: sound.Sound_MMIO,
@@ -182,12 +178,8 @@ pub const MMIO = packed struct {
     hram_FC: u8,
     hram_FD: u8,
     hram_FE: u8,
-    IE: packed struct { //= 0xFF, // Interrupt enable
-        enable_vblank_interrupt: bool, // VBlank (Read/Write): Controls whether the VBlank interrupt handler may be called
-        enable_lcd_interrupt: bool, // LCD (Read/Write): Controls whether the LCD interrupt handler may be called
-        enable_timer_interrupt: bool, // Timer (Read/Write): Controls whether the Timer interrupt handler may be called
-        enable_serial_interrupt: bool, // Serial (Read/Write): Controls whether the Serial interrupt handler may be called
-        enable_joypad_interrupt: bool, // Joypad (Read/Write): Controls whether the Joypad interrupt handler may be called
+    IE: packed struct { //= 0xFF, // Interrupt Enable
+        enable_interrupts_mask: u5,
         _unused: u3,
     },
 };
