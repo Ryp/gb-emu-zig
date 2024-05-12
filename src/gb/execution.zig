@@ -447,10 +447,17 @@ fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
     store_pc(gb, instruction.imm16);
 }
 
+// Like a call but 2 bytes cheapers
 fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    gb.registers.sp -= 2;
+
+    // FIXME We need to compute the right PC address, since at the time of execution
+    // we already advanced to the next instruction.
+    const previous_pc = gb.registers.pc - 1;
+
+    store_memory_u16(gb, gb.registers.sp, previous_pc);
+
+    store_pc(gb, instruction.target_addr);
 }
 
 fn execute_pop_r16stk(gb: *GBState, instruction: instructions.pop_r16stk) void {
