@@ -1,10 +1,13 @@
 const std = @import("std");
+const lcd = @import("lcd.zig");
 
 pub const GBState = struct {
     registers: Registers,
     memory: []u8,
-    io_registers: *IORegisters,
+    mmio: *MMIO,
     enable_interrupts_master: bool,
+    screen_x: u8,
+    screen_output: []u8,
     pending_cycles: u8,
     total_cycles: u64,
 };
@@ -69,7 +72,7 @@ comptime {
     std.debug.assert(@offsetOf(Registers_R16, "sp") == 8);
 }
 
-pub const IORegisters = packed struct {
+pub const MMIO = packed struct {
     JOYP: u8, //= 0x00, // Joypad (R/W)
     SB: u8, //= 0x01, // Serial transfer data (R/W)
     SC: u8, //= 0x02, // Serial Transfer Control (R/W)
@@ -85,7 +88,14 @@ pub const IORegisters = packed struct {
     _unused_0C: u8,
     _unused_0D: u8,
     _unused_0E: u8,
-    IF: u8, //= 0x0F, // Interrupt Flag (R/W)
+    IF: packed struct { //= 0x0F, // Interrupt Flag (R/W)
+        vblank_interrupt_requested: bool,
+        lcd_interrupt_requested: bool,
+        timer_interrupt_requested: bool,
+        serial_interrupt_requested: bool,
+        joypad_interrupt_requested: bool,
+        _unused: u3,
+    },
     // Sound
     NR10: u8, //= 0x10, // Channel 1 Sweep register (R/W)
     NR11: u8, //= 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
@@ -120,26 +130,10 @@ pub const IORegisters = packed struct {
     _unused_2E: u8,
     _unused_2F: u8,
     WAV_PATTERN_0: u32, //= 0x30, // Wave pattern
-    WAV_PATTERN_1: u32, //= 0x30, // Wave pattern
-    WAV_PATTERN_2: u32, //= 0x30, // Wave pattern
-    WAV_PATTERN_3: u32, //= 0x30, // Wave pattern
-    LCDC: u8, //= 0x40, // LCD Control (R/W)
-    STAT: u8, //= 0x41, // LCDC Status (R/W)
-    SCY: u8, //= 0x42, // Scroll Y (R/W)
-    SCX: u8, //= 0x43, // Scroll X (R/W)
-    LY: u8, //= 0x44, // LCDC Y-Coordinate (R)
-    LYC: u8, //= 0x45, // LY Compare (R/W)
-    DMA: u8, //= 0x46, // DMA Transfer and Start Address (W)
-    BGP: u8, //= 0x47, // BG Palette Data (R/W) - Non CGB Mode Only
-    OBP0: u8, //= 0x48, // Object Palette 0 Data (R/W) - Non CGB Mode Only
-    OBP1: u8, //= 0x49, // Object Palette 1 Data (R/W) - Non CGB Mode Only
-    WY: u8, //= 0x4A, // Window Y Position (R/W)
-    WX: u8, //= 0x4B, // Window X Position minus 7 (R/W)
-    // Controls DMG mode and PGB mode
-    KEY0: u8, //= 0x4C,
-    KEY1: u8, //= 0x4D, // CGB Mode Only - Prepare Speed Switch
-    _unused_4E: u8,
-    VBK: u8, //= 0x4F, // CGB Mode Only - VRAM Bank
+    WAV_PATTERN_1: u32,
+    WAV_PATTERN_2: u32,
+    WAV_PATTERN_3: u32,
+    lcd: lcd.LCD_MMIO,
     BANK: u8, //= 0x50, // Write to disable the boot ROM mapping
     HDMA1: u8, //= 0x51, // CGB Mode Only - New DMA Source, High
     HDMA2: u8, //= 0x52, // CGB Mode Only - New DMA Source, Low
@@ -188,92 +182,103 @@ pub const IORegisters = packed struct {
     _unused_7D: u8,
     _unused_7E: u8,
     _unused_7F: u8,
-    _unused_80_4: u32,
-    _unused_84_4: u32,
-    _unused_88_4: u32,
-    _unused_8C_4: u32,
-    _unused_90_4: u32,
-    _unused_94_4: u32,
-    _unused_98_4: u32,
-    _unused_9C_4: u32,
-    _unused_A0_4: u32,
-    _unused_A4_4: u32,
-    _unused_A8_4: u32,
-    _unused_AC_4: u32,
-    _unused_B0_4: u32,
-    _unused_B4_4: u32,
-    _unused_B8_4: u32,
-    _unused_BC_4: u32,
-    _unused_C0_4: u32,
-    _unused_C4_4: u32,
-    _unused_C8_4: u32,
-    _unused_CC_4: u32,
-    _unused_D0_4: u32,
-    _unused_D4_4: u32,
-    _unused_D8_4: u32,
-    _unused_DC_4: u32,
-    _unused_E0_4: u32,
-    _unused_E4_4: u32,
-    _unused_E8_4: u32,
-    _unused_EC_4: u32,
-    _unused_F0_4: u32,
-    _unused_F4_4: u32,
-    _unused_F8_4: u32,
-    _unused_FC: u8,
-    _unused_FD: u8,
-    _unused_FE: u8,
-    IE: u8,
+    hram_80_4: u32,
+    hram_84_4: u32,
+    hram_88_4: u32,
+    hram_8C_4: u32,
+    hram_90_4: u32,
+    hram_94_4: u32,
+    hram_98_4: u32,
+    hram_9C_4: u32,
+    hram_A0_4: u32,
+    hram_A4_4: u32,
+    hram_A8_4: u32,
+    hram_AC_4: u32,
+    hram_B0_4: u32,
+    hram_B4_4: u32,
+    hram_B8_4: u32,
+    hram_BC_4: u32,
+    hram_C0_4: u32,
+    hram_C4_4: u32,
+    hram_C8_4: u32,
+    hram_CC_4: u32,
+    hram_D0_4: u32,
+    hram_D4_4: u32,
+    hram_D8_4: u32,
+    hram_DC_4: u32,
+    hram_E0_4: u32,
+    hram_E4_4: u32,
+    hram_E8_4: u32,
+    hram_EC_4: u32,
+    hram_F0_4: u32,
+    hram_F4_4: u32,
+    hram_F8_4: u32,
+    hram_FC: u8,
+    hram_FD: u8,
+    hram_FE: u8,
+    IE: packed struct { //= 0xFF, // Interrupt enable
+        enable_vblank_interrupt: bool, // VBlank (Read/Write): Controls whether the VBlank interrupt handler may be called
+        enable_lcd_interrupt: bool, // LCD (Read/Write): Controls whether the LCD interrupt handler may be called
+        enable_timer_interrupt: bool, // Timer (Read/Write): Controls whether the Timer interrupt handler may be called
+        enable_serial_interrupt: bool, // Serial (Read/Write): Controls whether the Serial interrupt handler may be called
+        enable_joypad_interrupt: bool, // Joypad (Read/Write): Controls whether the Joypad interrupt handler may be called
+        _unused: u3,
+    },
 };
 
 comptime {
-    std.debug.assert(@offsetOf(IORegisters, "WAV_PATTERN_0") == 0x30);
-    std.debug.assert(@offsetOf(IORegisters, "PCM34") == 0x77);
-    std.debug.assert(@sizeOf(IORegisters) == 256);
+    std.debug.assert(@offsetOf(MMIO, "WAV_PATTERN_0") == 0x30);
+    std.debug.assert(@offsetOf(MMIO, "PCM34") == 0x77);
+    std.debug.assert(@offsetOf(MMIO, "lcd") == 0x40);
+    std.debug.assert(@sizeOf(MMIO) == 256);
 }
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
     const memory = try allocator.alloc(u8, 256 * 256); // FIXME
     errdefer allocator.free(memory);
 
-    // FIXME
+    const screen_output = try allocator.alloc(u8, lcd.ScreenSizeBytes);
+    errdefer allocator.free(screen_output);
+
+    // FIXME This only works with the smallest ROMs
     std.mem.copyForwards(u8, memory, cart_rom_bytes);
 
-    const io_register_memory = memory[0xFF00..];
-    const io_registers: *IORegisters = @ptrCast(@alignCast(io_register_memory)); // FIXME remove alignCast!
+    const mmio_memory = memory[0xFF00..];
+    const mmio: *MMIO = @ptrCast(@alignCast(mmio_memory)); // FIXME remove alignCast!
 
     // See this page for the initial state of the io registers:
     // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
-    io_register_memory[0x05] = 0x00;
-    io_register_memory[0x06] = 0x00;
-    io_register_memory[0x07] = 0x00;
-    io_register_memory[0x10] = 0x80;
-    io_register_memory[0x11] = 0xBF;
-    io_register_memory[0x12] = 0xF3;
-    io_register_memory[0x14] = 0xBF;
-    io_register_memory[0x16] = 0x3F;
-    io_register_memory[0x17] = 0x00;
-    io_register_memory[0x19] = 0xBF;
-    io_register_memory[0x1A] = 0x7F;
-    io_register_memory[0x1B] = 0xFF;
-    io_register_memory[0x1C] = 0x9F;
-    io_register_memory[0x1E] = 0xBF;
-    io_register_memory[0x20] = 0xFF;
-    io_register_memory[0x21] = 0x00;
-    io_register_memory[0x22] = 0x00;
-    io_register_memory[0x23] = 0xBF;
-    io_register_memory[0x24] = 0x77;
-    io_register_memory[0x25] = 0xF3;
-    io_register_memory[0x26] = 0xF1;
-    io_register_memory[0x40] = 0x91;
-    io_register_memory[0x42] = 0x00;
-    io_register_memory[0x43] = 0x00;
-    io_register_memory[0x45] = 0x00;
-    io_register_memory[0x47] = 0xFC;
-    io_register_memory[0x48] = 0xFF;
-    io_register_memory[0x49] = 0xFF;
-    io_register_memory[0x4A] = 0x00;
-    io_register_memory[0x4B] = 0x00;
-    io_register_memory[0xFF] = 0x00;
+    mmio_memory[0x05] = 0x00;
+    mmio_memory[0x06] = 0x00;
+    mmio_memory[0x07] = 0x00;
+    mmio_memory[0x10] = 0x80;
+    mmio_memory[0x11] = 0xBF;
+    mmio_memory[0x12] = 0xF3;
+    mmio_memory[0x14] = 0xBF;
+    mmio_memory[0x16] = 0x3F;
+    mmio_memory[0x17] = 0x00;
+    mmio_memory[0x19] = 0xBF;
+    mmio_memory[0x1A] = 0x7F;
+    mmio_memory[0x1B] = 0xFF;
+    mmio_memory[0x1C] = 0x9F;
+    mmio_memory[0x1E] = 0xBF;
+    mmio_memory[0x20] = 0xFF;
+    mmio_memory[0x21] = 0x00;
+    mmio_memory[0x22] = 0x00;
+    mmio_memory[0x23] = 0xBF;
+    mmio_memory[0x24] = 0x77;
+    mmio_memory[0x25] = 0xF3;
+    mmio_memory[0x26] = 0xF1;
+    mmio_memory[0x40] = 0x91;
+    mmio_memory[0x42] = 0x00;
+    mmio_memory[0x43] = 0x00;
+    mmio_memory[0x45] = 0x00;
+    mmio_memory[0x47] = 0xFC;
+    mmio_memory[0x48] = 0xFF;
+    mmio_memory[0x49] = 0xFF;
+    mmio_memory[0x4A] = 0x00;
+    mmio_memory[0x4B] = 0x00;
+    mmio_memory[0xFF] = 0x00;
 
     return GBState{
         .registers = @bitCast(Registers_R16{
@@ -285,13 +290,16 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .pc = 0x0100,
         }),
         .memory = memory,
-        .io_registers = io_registers,
+        .mmio = mmio,
         .enable_interrupts_master = false,
-        .pending_cycles = 0, // In T-states
+        .screen_x = 0,
+        .screen_output = screen_output,
+        .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
         .total_cycles = 0, // In T-states
     };
 }
 
 pub fn destroy_state(allocator: std.mem.Allocator, gb: *GBState) void {
     allocator.free(gb.memory);
+    allocator.free(gb.screen_output);
 }

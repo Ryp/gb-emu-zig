@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const cpu = @import("gb/cpu.zig");
+const lcd = @import("gb/lcd.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 
@@ -62,11 +63,15 @@ fn step(gb: *cpu.GBState) !void {
     // add them here after the fact
     gb.pending_cycles += @as(u8, current_instruction.byte_len) * 4;
 
-    consume_cycles(gb);
+    consume_pending_cycles(gb);
 }
 
-fn consume_cycles(gb: *cpu.GBState) void {
+fn consume_pending_cycles(gb: *cpu.GBState) void {
     gb.total_cycles += gb.pending_cycles;
+
+    if (gb.pending_cycles > 0) {
+        lcd.step_lcd(gb, gb.pending_cycles);
+    }
 
     std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
     gb.pending_cycles = 0; // FIXME
