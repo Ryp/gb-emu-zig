@@ -385,19 +385,25 @@ fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
 }
 
 fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    gb.pending_cycles += 4; // FIXME
+
+    if (eval_cond(gb.registers, instruction.cond)) {
+        execute_ret(gb);
+    }
 }
 
 fn execute_ret(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    const previous_pc = load_memory_u16(gb, gb.registers.sp);
+
+    gb.registers.sp += 2;
+
+    store_pc(gb, previous_pc);
 }
 
 fn execute_reti(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    execute_ret(gb);
+
+    gb.enable_interrupts_master = true;
 }
 
 fn execute_jp_cond_imm16(gb: *GBState, instruction: instructions.jp_cond_imm16) void {
@@ -416,15 +422,29 @@ fn execute_jp_hl(gb: *GBState) void {
 }
 
 fn execute_call_cond_imm16(gb: *GBState, instruction: instructions.call_cond_imm16) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    if (eval_cond(gb.registers, instruction.cond)) {
+        gb.registers.sp -= 2;
+
+        // FIXME We need to compute the right PC address, since at the time of execution
+        // we already advanced to the next instruction.
+        const previous_pc = gb.registers.pc - 3;
+
+        store_memory_u16(gb, gb.registers.sp, previous_pc);
+
+        store_pc(gb, instruction.imm16);
+    }
 }
 
 fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    gb.registers.sp -= 2;
+
+    // FIXME We need to compute the right PC address, since at the time of execution
+    // we already advanced to the next instruction.
+    const previous_pc = gb.registers.pc - 3;
+
+    store_memory_u16(gb, gb.registers.sp, previous_pc);
+
+    store_pc(gb, instruction.imm16);
 }
 
 fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
@@ -651,6 +671,13 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
     return gb.memory[address];
 }
 
+fn load_memory_u16(gb: *GBState, address: u16) u16 {
+    gb.pending_cycles += 8;
+
+    // FIXME Little endian?
+    return @as(u16, gb.memory[address]) | (@as(u16, @intCast(gb.memory[address + 1])) << 8);
+}
+
 fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
     // NOTE: Avoid writing in the ROM
     assert(address >= 0x8000);
@@ -664,12 +691,14 @@ fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
     // NOTE: Avoid writing in the ROM
     assert(address >= 0x8000);
 
+    // FIXME Little endian?
     gb.memory[address] = @intCast(value & 0xff);
     gb.memory[address + 1] = @intCast(value >> 8);
 
     gb.pending_cycles += 8;
 }
 
+// FIXME check if this actually takes cycles
 fn store_pc(gb: *GBState, value: u16) void {
     gb.registers.pc = value;
 

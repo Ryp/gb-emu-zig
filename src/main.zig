@@ -60,7 +60,8 @@ fn step(gb: *cpu.GBState) !void {
         gb.enable_interrupts_master = false; // Disable interrupts while we service them
 
         // FIXME check how 'byte_len' intereferes with clock timing
-        current_instruction = instructions.Instruction{ .byte_len = 0, .encoding = .{ .call_imm16 = .{
+        // FIXME also we're using byte_len to reset PC to the location BEFORE executing
+        current_instruction = instructions.Instruction{ .byte_len = 3, .encoding = .{ .call_imm16 = .{
             .imm16 = interrupt_jump_address,
         } } };
     } else {
