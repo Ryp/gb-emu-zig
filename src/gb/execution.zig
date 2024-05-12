@@ -385,7 +385,7 @@ fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
 }
 
 fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
-    gb.pending_cycles += 4; // FIXME
+    spend_cycles(gb, 4); // FIXME there's probably a better explanation for this
 
     if (eval_cond(gb.registers, instruction.cond)) {
         execute_ret(gb);
@@ -666,13 +666,13 @@ fn execute_invalid_instruction(gb: *GBState) void {
 }
 
 fn load_memory_u8(gb: *GBState, address: u16) u8 {
-    gb.pending_cycles += 4;
+    spend_cycles(gb, 4);
 
     return gb.memory[address];
 }
 
 fn load_memory_u16(gb: *GBState, address: u16) u16 {
-    gb.pending_cycles += 8;
+    spend_cycles(gb, 8);
 
     // FIXME Little endian?
     return @as(u16, gb.memory[address]) | (@as(u16, @intCast(gb.memory[address + 1])) << 8);
@@ -684,7 +684,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
 
     gb.memory[address] = value;
 
-    gb.pending_cycles += 4;
+    spend_cycles(gb, 4);
 }
 
 fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
@@ -695,14 +695,18 @@ fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
     gb.memory[address] = @intCast(value & 0xff);
     gb.memory[address + 1] = @intCast(value >> 8);
 
-    gb.pending_cycles += 8;
+    spend_cycles(gb, 8);
 }
 
 // FIXME check if this actually takes cycles
 fn store_pc(gb: *GBState, value: u16) void {
     gb.registers.pc = value;
 
-    gb.pending_cycles += 4;
+    spend_cycles(gb, 4);
+}
+
+fn spend_cycles(gb: *GBState, cycles: u8) void {
+    gb.pending_cycles += cycles;
 }
 
 fn load_r8(gb: *GBState, r8: R8) u8 {
