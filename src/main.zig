@@ -95,6 +95,8 @@ fn consume_pending_cycles(gb: *cpu.GBState) void {
     }
 
     std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
+    std.debug.print("total cycles = {:0>12}\n", .{gb.total_cycles});
+
     gb.pending_cycles = 0; // FIXME
 }
 
