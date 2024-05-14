@@ -416,9 +416,9 @@ fn execute_reti(gb: *GBState) void {
 }
 
 fn execute_jp_cond_imm16(gb: *GBState, instruction: instructions.jp_cond_imm16) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    if (eval_cond(gb.registers, instruction.cond)) {
+        execute_jp_imm16(gb, .{ .imm16 = instruction.imm16 });
+    }
 }
 
 fn execute_jp_imm16(gb: *GBState, instruction: instructions.jp_imm16) void {
@@ -426,8 +426,11 @@ fn execute_jp_imm16(gb: *GBState, instruction: instructions.jp_imm16) void {
 }
 
 fn execute_jp_hl(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    const registers_r16: cpu_state.Registers_R16 = @bitCast(gb.registers);
+
+    // FIXME here storing PC doesn't cost anything for some reason
+    // While other times it does.
+    gb.registers.pc = registers_r16.hl;
 }
 
 fn execute_call_cond_imm16(gb: *GBState, instruction: instructions.call_cond_imm16) void {

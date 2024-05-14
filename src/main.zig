@@ -6,6 +6,8 @@ const lcd = @import("gb/lcd.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 
+const enable_debug = false;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -44,8 +46,6 @@ pub fn main() !void {
 }
 
 fn step(gb: *cpu.GBState) !void {
-    print_register_debug(gb.registers);
-
     const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
 
     var current_instruction: instructions.Instruction = undefined;
@@ -68,10 +68,14 @@ fn step(gb: *cpu.GBState) !void {
         current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
     }
 
-    const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-    std.debug.print("[debug] op bytes = {b:0>8}, {x:0>2}\n", .{ i_mem, i_mem });
+    if (enable_debug) {
+        print_register_debug(gb.registers);
 
-    instructions.debug_print(current_instruction);
+        const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
+        std.debug.print("[debug] op bytes = {b:0>8}, {x:0>2}\n", .{ i_mem, i_mem });
+
+        instructions.debug_print(current_instruction);
+    }
 
     // Normally this would take some cycles to complete, but we take this into account
     // a tiny bit later.
@@ -91,11 +95,13 @@ fn consume_pending_cycles(gb: *cpu.GBState) void {
     gb.total_cycles += gb.pending_cycles;
 
     if (gb.pending_cycles > 0) {
-        lcd.step_lcd(gb, gb.pending_cycles);
+        lcd.step_pixel_processing_unit(gb, gb.pending_cycles);
     }
 
-    std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
-    std.debug.print("total cycles = {:0>12}\n", .{gb.total_cycles});
+    if (enable_debug) {
+        std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
+        std.debug.print("total cycles = {:0>12}\n", .{gb.total_cycles});
+    }
 
     gb.pending_cycles = 0; // FIXME
 }

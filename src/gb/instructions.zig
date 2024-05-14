@@ -19,7 +19,7 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_a_r16mem = .{
             .r16mem = decode_r16mem(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
         } } };
-    } else if ((b0 & 0b1100_1111) == 0b0000_1000) {
+    } else if (b0 == 0b0000_1000) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_sp = .{
             .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
         } } };
