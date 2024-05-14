@@ -135,9 +135,21 @@ fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
 }
 
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    spend_cycles(gb, 4);
+
+    const registers_r16: *cpu_state.Registers_R16 = @ptrCast(&gb.registers);
+
+    const r16_value = load_r16(gb.registers, instruction.r16);
+
+    const carry = @as(u32, registers_r16.hl) + @as(u32, r16_value) > 0xffff;
+    const half_carry = (registers_r16.hl & 0xfff) + (r16_value & 0xfff) > 0xfff;
+
+    // We could try to use addWithOverflow to set the carry
+    registers_r16.hl +%= r16_value;
+
+    set_carry_flag(&gb.registers, carry);
+    set_half_carry_flag(&gb.registers, half_carry);
+    set_substract_flag(&gb.registers, false);
 }
 
 fn execute_inc_r8(gb: *GBState, instruction: instructions.inc_r8) void {
@@ -480,9 +492,7 @@ fn execute_ldh_a_imm8(gb: *GBState, instruction: instructions.ldh_a_imm8) void {
 }
 
 fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    gb.registers.a = load_memory_u8(gb, instruction.imm16);
 }
 
 fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void {
