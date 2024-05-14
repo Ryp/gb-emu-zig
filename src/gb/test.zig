@@ -27,9 +27,9 @@ test {
     try expectEqual(cpu.FlagRegister{
         ._unused = 0,
         .carry = 1,
-        .half_carry = 1,
-        .substract = 0,
-        .zero = 1,
+        .half_carry = true,
+        .substract = false,
+        .zero = true,
     }, gb_state.registers.flags);
     try expectEqual(0xFFFE, gb_state.registers.sp);
     try expectEqual(0x0100, gb_state.registers.pc);

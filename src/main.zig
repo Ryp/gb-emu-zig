@@ -111,9 +111,9 @@ fn print_register_debug(registers: cpu.Registers) void {
     std.debug.print("====| PC = {x:0>4}, SP = {x:0>4}\n", .{ registers.pc, registers.sp });
     std.debug.print("====| A = {x:0>2}, Flags: {s} {s} {s} {s}\n", .{
         registers.a,
-        if (registers.flags.zero == 1) "Z" else "_",
-        if (registers.flags.substract == 1) "N" else "_",
-        if (registers.flags.half_carry == 1) "H" else "_",
+        if (registers.flags.zero) "Z" else "_",
+        if (registers.flags.substract) "N" else "_",
+        if (registers.flags.half_carry) "H" else "_",
         if (registers.flags.carry == 1) "C" else "_",
     });
     std.debug.print("====| B = {x:0>2}, C = {x:0>2}\n", .{ registers.b, registers.c });

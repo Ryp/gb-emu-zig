@@ -62,9 +62,9 @@ pub const Registers_R16 = packed struct {
 pub const FlagRegister = packed struct {
     _unused: u4,
     carry: u1, // FIXME use bool
-    half_carry: u1, // FIXME use bool
-    substract: u1, // FIXME use bool
-    zero: u1, // FIXME use bool
+    half_carry: bool,
+    substract: bool,
+    zero: bool,
 };
 
 comptime {
