@@ -231,19 +231,17 @@ fn execute_ccf(gb: *GBState) void {
 }
 
 fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    // FIXME Zig is weird about mixing unsigned and signed values, so the ugly ternary is what it is.
+    if (instruction.offset < 0) {
+        store_pc(gb, gb.registers.pc - @as(u16, @intCast(-instruction.offset)));
+    } else {
+        store_pc(gb, gb.registers.pc + @as(u16, @intCast(instruction.offset)));
+    }
 }
 
 fn execute_jr_cond_imm8(gb: *GBState, instruction: instructions.jr_cond_imm8) void {
     if (eval_cond(gb.registers, instruction.cond)) {
-        // FIXME Zig is weird about mixing unsigned and signed values, so the ugly ternary is what it is.
-        if (instruction.offset < 0) {
-            store_pc(gb, gb.registers.pc - @as(u16, @intCast(-instruction.offset)));
-        } else {
-            store_pc(gb, gb.registers.pc + @as(u16, @intCast(instruction.offset)));
-        }
+        execute_jr_imm8(gb, .{ .offset = instruction.offset });
     }
 }
 
