@@ -116,7 +116,6 @@ fn execute_ld_a_r16mem(gb: *GBState, instruction: instructions.ld_a_r16mem) void
     if (r16mem.r16 == R16.hl) {
         increment_hl(&gb.registers, r16mem.increment);
     }
-    unreachable;
 }
 
 fn execute_ld_imm16_sp(gb: *GBState, instruction: instructions.ld_imm16_sp) void {
@@ -254,9 +253,9 @@ fn execute_stop(gb: *GBState) void {
 }
 
 fn execute_ld_r8_r8(gb: *GBState, instruction: instructions.ld_r8_r8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    const value = load_r8(gb, instruction.r8_src);
+
+    store_r8(gb, instruction.r8_dst, value);
 }
 
 fn execute_halt(gb: *GBState) void {
@@ -395,9 +394,9 @@ fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
 fn execute_ret(gb: *GBState) void {
     const previous_pc = load_memory_u16(gb, gb.registers.sp);
 
-    gb.registers.sp += 2;
-
     store_pc(gb, previous_pc);
+
+    gb.registers.sp += 2;
 }
 
 fn execute_reti(gb: *GBState) void {
@@ -423,26 +422,14 @@ fn execute_jp_hl(gb: *GBState) void {
 
 fn execute_call_cond_imm16(gb: *GBState, instruction: instructions.call_cond_imm16) void {
     if (eval_cond(gb.registers, instruction.cond)) {
-        gb.registers.sp -= 2;
-
-        // FIXME We need to compute the right PC address, since at the time of execution
-        // we already advanced to the next instruction.
-        const previous_pc = gb.registers.pc - 3;
-
-        store_memory_u16(gb, gb.registers.sp, previous_pc);
-
-        store_pc(gb, instruction.imm16);
+        execute_call_imm16(gb, .{ .imm16 = instruction.imm16 });
     }
 }
 
 fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
     gb.registers.sp -= 2;
 
-    // FIXME We need to compute the right PC address, since at the time of execution
-    // we already advanced to the next instruction.
-    const previous_pc = gb.registers.pc - 3;
-
-    store_memory_u16(gb, gb.registers.sp, previous_pc);
+    store_memory_u16(gb, gb.registers.sp, gb.registers.pc);
 
     store_pc(gb, instruction.imm16);
 }
@@ -461,22 +448,25 @@ fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
 }
 
 fn execute_pop_r16stk(gb: *GBState, instruction: instructions.pop_r16stk) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    const value = load_memory_u16(gb, gb.registers.sp);
+
+    store_r16(&gb.registers, instruction.r16stk, value);
+
+    gb.registers.sp += 2;
 }
 
 fn execute_push_r16stk(gb: *GBState, instruction: instructions.push_r16stk) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    spend_cycles(gb, 4); // FIXME there's probably a better explanation for this
+
+    gb.registers.sp -= 2;
+
+    store_memory_u16(gb, gb.registers.sp, load_r16(gb.registers, instruction.r16stk));
 }
 
 const LDH_OFFSET: u16 = 0xff00;
 
 fn execute_ldh_c_a(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    store_memory_u8(gb, LDH_OFFSET + gb.registers.c, gb.registers.a);
 }
 
 fn execute_ldh_imm8_a(gb: *GBState, instruction: instructions.ldh_imm8_a) void {
@@ -484,14 +474,11 @@ fn execute_ldh_imm8_a(gb: *GBState, instruction: instructions.ldh_imm8_a) void {
 }
 
 fn execute_ld_imm16_a(gb: *GBState, instruction: instructions.ld_imm16_a) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    store_memory_u8(gb, instruction.imm16, gb.registers.a);
 }
 
 fn execute_ldh_a_c(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    gb.registers.a = load_memory_u8(gb, LDH_OFFSET + gb.registers.c);
 }
 
 fn execute_ldh_a_imm8(gb: *GBState, instruction: instructions.ldh_a_imm8) void {
