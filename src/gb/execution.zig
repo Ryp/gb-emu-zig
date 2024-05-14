@@ -438,11 +438,7 @@ fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
 fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
     gb.registers.sp -= 2;
 
-    // FIXME We need to compute the right PC address, since at the time of execution
-    // we already advanced to the next instruction.
-    const previous_pc = gb.registers.pc - 1;
-
-    store_memory_u16(gb, gb.registers.sp, previous_pc);
+    store_memory_u16(gb, gb.registers.sp, gb.registers.pc);
 
     store_pc(gb, instruction.target_addr);
 }
@@ -668,7 +664,6 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
 fn load_memory_u16(gb: *GBState, address: u16) u16 {
     spend_cycles(gb, 8);
 
-    // FIXME Little endian?
     return @as(u16, gb.memory[address]) | (@as(u16, @intCast(gb.memory[address + 1])) << 8);
 }
 
@@ -685,7 +680,6 @@ fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
     // NOTE: Avoid writing in the ROM
     assert(address >= 0x8000);
 
-    // FIXME Little endian?
     gb.memory[address] = @intCast(value & 0xff);
     gb.memory[address + 1] = @intCast(value >> 8);
 
@@ -765,8 +759,7 @@ fn eval_cond(registers: Registers, cond: instructions.Cond) bool {
 fn increment_hl(registers: *Registers, increment: bool) void {
     var hl_value = load_r16(registers.*, R16.hl);
 
-    // FIXME What happens to carry flags when this wraps around?
-    // Let zig catch an exception since it doesn't look like this is supposed to happen anyway.
+    // Let zig catch an exception on wraparound since it doesn't look like this is supposed to happen anyway.
     if (increment) {
         hl_value += 1;
     } else {
