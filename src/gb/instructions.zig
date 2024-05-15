@@ -418,7 +418,7 @@ pub const Instruction = struct {
 };
 
 pub fn debug_print(instruction: Instruction) void {
-    std.debug.print("[debug] l = {}, i = {s}\n", .{ instruction.byte_len, switch (instruction.encoding) {
+    std.debug.print(" len = {}, {s}\n", .{ instruction.byte_len, switch (instruction.encoding) {
         .nop => "nop",
         .ld_r16_imm16 => "ld_r16_imm16",
         .ld_r16mem_a => "ld_r16mem_a",

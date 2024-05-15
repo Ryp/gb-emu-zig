@@ -72,7 +72,7 @@ fn step(gb: *cpu.GBState) !void {
         print_register_debug(gb.registers);
 
         const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-        std.debug.print("[debug] op bytes = {b:0>8}, {x:0>2}\n", .{ i_mem, i_mem });
+        std.debug.print(" | op = {b:0>8}, {x:0>2}", .{ i_mem, i_mem });
 
         instructions.debug_print(current_instruction);
     }
@@ -99,25 +99,23 @@ fn consume_pending_cycles(gb: *cpu.GBState) void {
     }
 
     if (enable_debug) {
-        std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
-        std.debug.print("total cycles = {:0>12}\n", .{gb.total_cycles});
+        // std.debug.print("cycles consumed: {}\n", .{gb.pending_cycles});
+        // std.debug.print("total cycles = {:0>12}\n", .{gb.total_cycles});
     }
 
     gb.pending_cycles = 0; // FIXME
 }
 
 fn print_register_debug(registers: cpu.Registers) void {
-    std.debug.print("===================================\n", .{});
-    std.debug.print("====| PC = {x:0>4}, SP = {x:0>4}\n", .{ registers.pc, registers.sp });
-    std.debug.print("====| A = {x:0>2}, Flags: {s} {s} {s} {s}\n", .{
+    std.debug.print("PC = {x:0>4}, SP = {x:0>4}", .{ registers.pc, registers.sp });
+    std.debug.print(" | A = {x:0>2}, Flags: {s} {s} {s} {s}", .{
         registers.a,
         if (registers.flags.zero) "Z" else "_",
         if (registers.flags.substract) "N" else "_",
         if (registers.flags.half_carry) "H" else "_",
         if (registers.flags.carry == 1) "C" else "_",
     });
-    std.debug.print("====| B = {x:0>2}, C = {x:0>2}\n", .{ registers.b, registers.c });
-    std.debug.print("====| D = {x:0>2}, E = {x:0>2}\n", .{ registers.d, registers.e });
-    std.debug.print("====| H = {x:0>2}, L = {x:0>2}\n", .{ registers.h, registers.l });
-    std.debug.print("===================================\n", .{});
+    std.debug.print(" | B = {x:0>2}, C = {x:0>2}", .{ registers.b, registers.c });
+    std.debug.print(" | D = {x:0>2}, E = {x:0>2}", .{ registers.d, registers.e });
+    std.debug.print(" | H = {x:0>2}, L = {x:0>2}", .{ registers.h, registers.l });
 }
