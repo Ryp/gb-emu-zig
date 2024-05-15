@@ -156,7 +156,7 @@ fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
     // We could try to use addWithOverflow to set the carry
     registers_r16.hl +%= r16_value;
 
-    set_carry_flag(&gb.registers, carry);
+    set_carry(&gb.registers, carry);
     gb.registers.flags.half_carry = half_carry;
     gb.registers.flags.substract = false;
 }
@@ -195,7 +195,7 @@ fn execute_rlca(gb: *GBState) void {
     gb.registers.a = std.math.rotl(u8, gb.registers.a, 1);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, msb_set);
+    set_carry(&gb.registers, msb_set);
 }
 
 fn execute_rrca(gb: *GBState) void {
@@ -204,7 +204,7 @@ fn execute_rrca(gb: *GBState) void {
     gb.registers.a = std.math.rotr(u8, gb.registers.a, 1);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, lsb_set);
+    set_carry(&gb.registers, lsb_set);
 }
 
 fn execute_rla(gb: *GBState) void {
@@ -213,7 +213,7 @@ fn execute_rla(gb: *GBState) void {
     gb.registers.a = gb.registers.a << 1 | gb.registers.flags.carry;
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, msb_set);
+    set_carry(&gb.registers, msb_set);
 }
 
 fn execute_rra(gb: *GBState) void {
@@ -222,7 +222,7 @@ fn execute_rra(gb: *GBState) void {
     gb.registers.a = gb.registers.a >> 1 | (@as(u8, gb.registers.flags.carry) << 7);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, lsb_set);
+    set_carry(&gb.registers, lsb_set);
 }
 
 fn execute_daa(gb: *GBState) void {
@@ -292,7 +292,7 @@ fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
     gb.registers.a +%= r8_value;
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, carry);
+    set_carry(&gb.registers, carry);
     gb.registers.flags.half_carry = half_carry;
     gb.registers.flags.zero = gb.registers.a == 0;
 }
@@ -396,7 +396,7 @@ fn execute_or_a_imm8(gb: *GBState, instruction: instructions.or_a_imm8) void {
 }
 
 fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
-    set_carry_flag(&gb.registers, gb.registers.a < instruction.imm8);
+    set_carry(&gb.registers, gb.registers.a < instruction.imm8);
     gb.registers.flags.half_carry = (gb.registers.a & 0xf) < (instruction.imm8 & 0xf);
     gb.registers.flags.substract = true;
     gb.registers.flags.zero = gb.registers.a == instruction.imm8;
@@ -542,7 +542,7 @@ fn execute_rlc_r8(gb: *GBState, instruction: instructions.rlc_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_msb_set);
+    set_carry(&gb.registers, r8_msb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -555,7 +555,7 @@ fn execute_rrc_r8(gb: *GBState, instruction: instructions.rrc_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_carry(&gb.registers, r8_lsb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -568,7 +568,7 @@ fn execute_rl_r8(gb: *GBState, instruction: instructions.rl_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_msb_set);
+    set_carry(&gb.registers, r8_msb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -581,7 +581,7 @@ fn execute_rr_r8(gb: *GBState, instruction: instructions.rr_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_carry(&gb.registers, r8_lsb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -595,7 +595,7 @@ fn execute_sla_r8(gb: *GBState, instruction: instructions.sla_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_msb_set);
+    set_carry(&gb.registers, r8_msb_set);
     gb.registers.flags.zero = r8_rest_unset;
 }
 
@@ -609,7 +609,7 @@ fn execute_sra_r8(gb: *GBState, instruction: instructions.sra_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_carry(&gb.registers, r8_lsb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -633,7 +633,7 @@ fn execute_srl_r8(gb: *GBState, instruction: instructions.srl_r8) void {
     store_r8(gb, instruction.r8, op_result);
 
     reset_flags(&gb.registers);
-    set_carry_flag(&gb.registers, r8_lsb_set);
+    set_carry(&gb.registers, r8_lsb_set);
     gb.registers.flags.zero = op_result == 0;
 }
 
@@ -793,6 +793,6 @@ fn reset_flags(registers: *Registers) void {
     registers.flags = @bitCast(@as(u8, 0));
 }
 
-fn set_carry_flag(registers: *Registers, carry: bool) void {
+fn set_carry(registers: *Registers, carry: bool) void {
     registers.flags.carry = if (carry) 1 else 0;
 }
