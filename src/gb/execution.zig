@@ -310,9 +310,20 @@ fn execute_sub_a_r8(gb: *GBState, instruction: instructions.sub_a_r8) void {
 }
 
 fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    // FIXME
+    const r8_value = load_r8(gb, instruction.r8);
+
+    const result: u8 = gb.registers.a - r8_value - gb.registers.flags.carry;
+
+    gb.registers.a = result;
+
+    const carry = @as(u32, gb.registers.a) - @as(u32, r8_value) - gb.registers.flags.carry > 0xff;
+    const half_carry = (gb.registers.a & 0xf) < (r8_value & 0xf) + gb.registers.flags.carry;
+
+    set_carry(&gb.registers, carry);
+    gb.registers.flags.half_carry = half_carry;
+    gb.registers.flags.substract = true;
+    gb.registers.flags.zero = gb.registers.a == 0;
 }
 
 fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
