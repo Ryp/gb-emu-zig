@@ -88,6 +88,15 @@ pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) 
     }
 }
 
+pub fn execute_interrupt(gb: *GBState, jump_address: u16) void {
+    // FIXME timing
+    gb.registers.sp -= 2;
+
+    store_memory_u16(gb, gb.registers.sp, gb.registers.pc);
+
+    store_pc(gb, jump_address);
+}
+
 fn execute_nop(gb: *GBState) void {
     _ = gb; // do nothing
 }

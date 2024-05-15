@@ -46,11 +46,9 @@ pub fn main() !void {
 }
 
 fn step(gb: *cpu.GBState) !void {
+    // Service interrupts
     const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
 
-    var current_instruction: instructions.Instruction = undefined;
-
-    // Service interrupts
     if (gb.enable_interrupts_master and interrupt_mask_to_service != 0) {
         const interrupt_bit_index = @ctz(interrupt_mask_to_service); // First set bit gets priority
         const interrupt_bit_mask: u5 = @intCast(@as(u16, 1) << interrupt_bit_index);
@@ -59,20 +57,22 @@ fn step(gb: *cpu.GBState) !void {
         gb.mmio.IF.requested_interrupts_mask &= ~interrupt_bit_mask; // Mark current interrupt as serviced
         gb.enable_interrupts_master = false; // Disable interrupts while we service them
 
-        // FIXME check how 'byte_len' intereferes with clock timing
-        // FIXME also we're using byte_len to reset PC to the location BEFORE executing
-        current_instruction = instructions.Instruction{ .byte_len = 3, .encoding = .{ .call_imm16 = .{
-            .imm16 = interrupt_jump_address,
-        } } };
-    } else {
-        current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
+        if (enable_debug) {
+            std.debug.print("==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT \n", .{});
+        }
+
+        execution.execute_interrupt(gb, interrupt_jump_address);
     }
+
+    // Execute instructions
+    const current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
 
     if (enable_debug) {
         print_register_debug(gb.registers);
+        std.debug.print(" | IME {b}, IE {b:0>5}, IF {b:0>5}, STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
 
         const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-        std.debug.print(" | op = {b:0>8}, {x:0>2}", .{ i_mem, i_mem });
+        std.debug.print(" | op {b:0>8}, {x:0>2}", .{ i_mem, i_mem });
 
         instructions.debug_print(current_instruction);
     }

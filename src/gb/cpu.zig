@@ -8,8 +8,12 @@ pub const GBState = struct {
     memory: []u8,
     mmio: *MMIO,
     enable_interrupts_master: bool, // IME
-    screen_x: u8,
+    vram: []u8,
+
     screen_output: []u8,
+    ppu_h_cycles: u8, // FIXME not the same clock speed as the CPU
+    last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
+
     pending_cycles: u8,
     total_cycles: u64,
 };
@@ -184,6 +188,12 @@ pub const MMIO = packed struct {
     },
 };
 
+pub const InterruptMaskVBlank = 0b00001;
+pub const InterruptMaskLCD = 0b00010;
+pub const InterruptMaskTimer = 0b00100;
+pub const InterruptMaskSerial = 0b01000;
+pub const InterruptMaskJoypad = 0b10000;
+
 comptime {
     std.debug.assert(@offsetOf(MMIO, "sound") == 0x10);
     std.debug.assert(@offsetOf(MMIO, "lcd") == 0x40);
@@ -203,6 +213,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
 
     const mmio_memory = memory[0xFF00..];
     const mmio: *MMIO = @ptrCast(@alignCast(mmio_memory)); // FIXME remove alignCast!
+    const vram = memory[lcd.VRAMBeginOffset..lcd.VRAMEndOffset];
 
     // See this page for the initial state of the io registers:
     // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
@@ -238,6 +249,9 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     mmio_memory[0x4B] = 0x00;
     mmio_memory[0xFF] = 0x00;
 
+    // FIXME
+    mmio.lcd.LY = 0;
+
     return GBState{
         .registers = @bitCast(Registers_R16{
             .bc = 0x0013,
@@ -250,8 +264,10 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .memory = memory,
         .mmio = mmio,
         .enable_interrupts_master = false,
-        .screen_x = 0,
+        .vram = vram,
         .screen_output = screen_output,
+        .ppu_h_cycles = 0,
+        .last_stat_interrupt_line = false,
         .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
         .total_cycles = 0, // In T-states
     };

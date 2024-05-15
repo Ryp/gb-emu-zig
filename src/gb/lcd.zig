@@ -12,6 +12,17 @@ pub const VRAMBeginOffset = 0x8000;
 pub const VRAMEndOffset = 0xA000;
 pub const VRAMBytes = VRAMEndOffset - VRAMBeginOffset;
 
+const OAMDurationCycles = 20; // FIXME add PPU name
+const DrawMinDurationCycles = 43;
+const HBlankMaxDurationCycles = 51;
+const ScanLineDurationCycles = OAMDurationCycles + DrawMinDurationCycles + HBlankMaxDurationCycles;
+const ScanLineCount = ScreenHeight + 10;
+
+comptime {
+    std.debug.assert(ScanLineDurationCycles == 114);
+    std.debug.assert(ScanLineCount == 154);
+}
+
 pub const LCD_MMIO = packed struct {
     LCDC: packed struct { //= 0x40, // LCD Control (R/W)
         enable_bg_and_window: bool, // BG & Window enable / priority [Different meaning in CGB Mode]: 0 = Off; 1 = On
@@ -33,11 +44,11 @@ pub const LCD_MMIO = packed struct {
             ScanOAM, // mode 2
             Drawing, // mode 3
         },
-        lyc_equal_ly: u1, // LYC == LY (Read-only): Set when LY contains the same value as LYC; it is constantly updated.
-        mode_0_interrupt_select: u1, // Mode 0 int select (Read/Write): If set, selects the Mode 0 condition for the STAT interrupt.
-        mode_1_interrupt_select: u1, // Mode 1 int select (Read/Write): If set, selects the Mode 1 condition for the STAT interrupt.
-        mode_2_interrupt_select: u1, // Mode 2 int select (Read/Write): If set, selects the Mode 2 condition for the STAT interrupt.
-        lyc_interrupt_select: u1, // LYC int select (Read/Write): If set, selects the LYC == LY condition for the STAT interrupt.
+        lyc_equal_ly: bool, // LYC == LY (Read-only): Set when LY contains the same value as LYC; it is constantly updated.
+        enable_hblank_interrupt: bool, // Mode 0 int select (Read/Write): If set, selects the Mode 0 condition for the STAT interrupt.
+        enable_vblank_interrupt: bool, // Mode 1 int select (Read/Write): If set, selects the Mode 1 condition for the STAT interrupt.
+        enable_scan_oam_interrupt: bool, // Mode 2 int select (Read/Write): If set, selects the Mode 2 condition for the STAT interrupt.
+        enable_lyc_interrupt: bool, // LYC int select (Read/Write): If set, selects the LYC == LY condition for the STAT interrupt.
         _unused: u1,
     },
     SCY: u8, //= 0x42, // Scroll Y (R/W)
@@ -57,14 +68,14 @@ pub const LCD_MMIO = packed struct {
     VBK: u8, //= 0x4F, // CGB Mode Only - VRAM Bank
 };
 
-pub const Palette = packed struct {
+const Palette = packed struct {
     id_0_color: u2,
     id_1_color: u2,
     id_2_color: u2,
     id_3_color: u2,
 };
 
-pub const Sprite = packed struct {
+const Sprite = packed struct {
     position_x: u8,
     position_y: u8,
     tile_index: u8,
@@ -122,68 +133,113 @@ fn eval_palette_raw(palette: u8, color_id: u2) u2 {
     return @intCast((palette >> (color_id * 2)) & 0b11);
 }
 
-pub fn step_lcd(gb: *cpu.GBState, cycle_count: u8) void {
-    // FIXME draft for now
-    if (true) {
-        return;
-    }
+pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
+    const io_lcd = &gb.mmio.lcd;
+    var cycles_remaining = cycle_count;
 
+    // FIXME Handle io_lcd.LCDC.enable_lcd_and_ppu correctly
+
+    while (cycles_remaining > 0) {
+        // Update PPU Mode and get current interrupt line state
+        var interrupt_line = false;
+
+        if (io_lcd.LY < ScreenHeight) {
+            if (gb.ppu_h_cycles < OAMDurationCycles) {
+                interrupt_line = interrupt_line or io_lcd.STAT.enable_scan_oam_interrupt;
+                io_lcd.STAT.ppu_mode = .ScanOAM;
+            } else if (gb.ppu_h_cycles < OAMDurationCycles + DrawMinDurationCycles) {
+                // There's no interrupt for this mode
+                io_lcd.STAT.ppu_mode = .Drawing;
+            } else {
+                interrupt_line = interrupt_line or io_lcd.STAT.enable_hblank_interrupt;
+                io_lcd.STAT.ppu_mode = .HBlank;
+            }
+        } else {
+            interrupt_line = interrupt_line or io_lcd.STAT.enable_vblank_interrupt;
+            io_lcd.STAT.ppu_mode = .VBlank;
+        }
+
+        interrupt_line = interrupt_line or (io_lcd.STAT.enable_lyc_interrupt and io_lcd.STAT.lyc_equal_ly);
+
+        // Only request an interrupt when the interrupt line goes up
+        if (!gb.last_stat_interrupt_line and interrupt_line) {
+            gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskLCD;
+        }
+
+        gb.last_stat_interrupt_line = interrupt_line;
+
+        // Execute current mode
+        switch (io_lcd.STAT.ppu_mode) {
+            .HBlank, .VBlank, .ScanOAM => {},
+            .Drawing => {
+                const x: u16 = gb.ppu_h_cycles - OAMDurationCycles;
+                const y: u16 = io_lcd.LY;
+                // FIXME Re-enable
+                _ = x;
+                _ = y;
+                // pixel_processing_unit_draw(gb, x, y);
+            },
+        }
+
+        // Update variables for the next iteration
+        cycles_remaining -= 4; // FIXME
+        gb.ppu_h_cycles += 1;
+
+        if (gb.ppu_h_cycles == ScanLineDurationCycles) {
+            gb.ppu_h_cycles = 0;
+
+            io_lcd.LY += 1;
+
+            if (io_lcd.LY == ScanLineCount) {
+                io_lcd.LY = 0;
+            }
+
+            io_lcd.STAT.lyc_equal_ly = io_lcd.LYC == io_lcd.LY;
+        }
+    }
+}
+
+fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
     const io_lcd = &gb.mmio.lcd;
 
-    const vram = gb.memory[VRAMBeginOffset..VRAMEndOffset];
-
     // Tile Data
-    const vram_tile_data0 = vram[0x0000..0x1000];
-    const vram_tile_data1 = vram[0x0800..0x1800];
+    const vram_tile_data0 = gb.vram[0x0000..0x1000];
+    const vram_tile_data1 = gb.vram[0x0800..0x1800];
     const tile_data_sprites = vram_tile_data0;
     const tile_data_bg = if (io_lcd.LCDC.bg_and_window_tile_data_area == 1) vram_tile_data1 else vram_tile_data0;
 
     _ = tile_data_sprites;
 
     // Tile Map
-    const vram_tile_map0 = vram[0x1800..0x1C00];
-    const vram_tile_map1 = vram[0x1C00..0x2000];
+    const vram_tile_map0 = gb.vram[0x1800..0x1C00];
+    const vram_tile_map1 = gb.vram[0x1C00..0x2000];
     const tile_map_bg = if (io_lcd.LCDC.bg_tile_map_area == 1) vram_tile_map1 else vram_tile_map0;
     const tile_map_win = if (io_lcd.LCDC.window_tile_map_area == 1) vram_tile_map1 else vram_tile_map0;
 
     _ = tile_map_win;
 
-    if (io_lcd.LCDC.enable_lcd_and_ppu) {} // FIXME
+    std.debug.assert(screen_x < ScreenWidth);
+    std.debug.assert(screen_y < ScreenHeight);
 
-    var cycles_remaining = cycle_count;
-    while (cycles_remaining > 0) {
-        const screen_x: u16 = gb.screen_x;
-        const screen_y: u16 = io_lcd.LY;
+    if (io_lcd.LCDC.enable_bg_and_window) {
+        const tile_map_x = (screen_x + io_lcd.SCX) % TileMapExtent;
+        const tile_map_y = (screen_y + io_lcd.SCY) % TileMapExtent;
 
-        if (io_lcd.LCDC.enable_bg_and_window) {
-            const tile_map_x = (screen_x + io_lcd.SCX) % TileMapExtent;
-            const tile_map_y = (screen_y + io_lcd.SCY) % TileMapExtent;
+        const pixel_offset: TileMapPixelOffset = @bitCast(tile_map_y * TileMapExtent + tile_map_x);
 
-            const pixel_offset: TileMapPixelOffset = @bitCast(tile_map_y * TileMapExtent + tile_map_x);
+        if (io_lcd.LCDC.enable_window) {}
 
-            if (io_lcd.LCDC.enable_window) {}
+        const bg_tile_map_entry = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
+        std.debug.assert(bg_tile_map_entry < 128);
 
-            const bg_tile_map_entry = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
-            std.debug.assert(bg_tile_map_entry < 128);
+        const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
 
-            const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
+        const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
+        const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
 
-            const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
-            const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
-
-            const screen_dst_offset = screen_y * ScreenWidth + screen_x;
-            gb.screen_output[screen_dst_offset] = pixel_color;
-        }
-
-        if (io_lcd.LCDC.obj_enable) {}
-
-        gb.screen_x += 1;
-
-        if (gb.screen_x == ScreenWidth) {
-            gb.screen_x = 0;
-            io_lcd.LY += 1;
-        }
-
-        cycles_remaining -= 4; // FIXME
+        const screen_dst_offset = screen_y * ScreenWidth + screen_x;
+        gb.screen_output[screen_dst_offset] = pixel_color;
     }
+
+    if (io_lcd.LCDC.obj_enable) {}
 }
