@@ -13,6 +13,7 @@ pub const GBState = struct {
     screen_output: []u8,
     ppu_h_cycles: u8, // FIXME not the same clock speed as the CPU
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
+    has_frame_to_consume: bool,
 
     pending_cycles: u8,
     total_cycles: u64,
@@ -268,6 +269,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .screen_output = screen_output,
         .ppu_h_cycles = 0,
         .last_stat_interrupt_line = false,
+        .has_frame_to_consume = false,
         .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
         .total_cycles = 0, // In T-states
     };

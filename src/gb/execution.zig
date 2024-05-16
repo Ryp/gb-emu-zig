@@ -9,7 +9,81 @@ const instructions = @import("instructions.zig");
 const R8 = instructions.R8;
 const R16 = instructions.R16;
 
-pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
+const lcd = @import("lcd.zig");
+
+const enable_debug = false;
+
+pub fn step(gb: *GBState) !void {
+    // Service interrupts
+    const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
+
+    if (gb.enable_interrupts_master and interrupt_mask_to_service != 0) {
+        const interrupt_bit_index = @ctz(interrupt_mask_to_service); // First set bit gets priority
+        const interrupt_bit_mask: u5 = @intCast(@as(u16, 1) << interrupt_bit_index);
+        const interrupt_jump_address: u8 = 0x40 + @as(u8, interrupt_bit_index) * 0x08;
+
+        gb.mmio.IF.requested_interrupts_mask &= ~interrupt_bit_mask; // Mark current interrupt as serviced
+        gb.enable_interrupts_master = false; // Disable interrupts while we service them
+
+        if (enable_debug) {
+            std.debug.print("==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT \n", .{});
+        }
+
+        execute_interrupt(gb, interrupt_jump_address);
+    }
+
+    // Execute instructions
+    const current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
+
+    if (enable_debug) {
+        print_register_debug(gb.registers);
+        std.debug.print(" | IME {b}, IE {b:0>5}, IF {b:0>5}, STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
+
+        const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
+        std.debug.print(" | op {b:0>8}, {x:0>2}", .{ i_mem, i_mem });
+
+        instructions.debug_print(current_instruction);
+    }
+
+    // Normally this would take some cycles to complete, but we take this into account
+    // a tiny bit later.
+    gb.registers.pc += current_instruction.byte_len;
+
+    execute_instruction(gb, current_instruction);
+
+    // We're decoding all instructions fully before executing them.
+    // Each byte read actually makes the CPU spin another 4 cycles, so we can just
+    // add them here after the fact
+    gb.pending_cycles += @as(u8, current_instruction.byte_len) * 4;
+
+    consume_pending_cycles(gb);
+}
+
+fn consume_pending_cycles(gb: *GBState) void {
+    gb.total_cycles += gb.pending_cycles;
+
+    if (gb.pending_cycles > 0) {
+        lcd.step_pixel_processing_unit(gb, gb.pending_cycles);
+    }
+
+    gb.pending_cycles = 0; // FIXME
+}
+
+fn print_register_debug(registers: Registers) void {
+    std.debug.print("PC = {x:0>4}, SP = {x:0>4}", .{ registers.pc, registers.sp });
+    std.debug.print(" | A = {x:0>2}, Flags: {s} {s} {s} {s}", .{
+        registers.a,
+        if (registers.flags.zero) "Z" else "_",
+        if (registers.flags.substract) "N" else "_",
+        if (registers.flags.half_carry) "H" else "_",
+        if (registers.flags.carry == 1) "C" else "_",
+    });
+    std.debug.print(" | B = {x:0>2}, C = {x:0>2}", .{ registers.b, registers.c });
+    std.debug.print(" | D = {x:0>2}, E = {x:0>2}", .{ registers.d, registers.e });
+    std.debug.print(" | H = {x:0>2}, L = {x:0>2}", .{ registers.h, registers.l });
+}
+
+fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
     switch (instruction.encoding) {
         .nop => execute_nop(gb),
         .ld_r16_imm16 => |i| execute_ld_r16_imm16(gb, i),

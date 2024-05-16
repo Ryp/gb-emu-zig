@@ -8,6 +8,8 @@ pub const PixelsPerByte = 4;
 // pub const ScreenSizeBytes = (ScreenWidth * ScreenHeight) / PixelsPerByte; // FIXME
 pub const ScreenSizeBytes = ScreenWidth * ScreenHeight; // FIXME
 
+pub const TileMapExtent = 256;
+
 pub const VRAMBeginOffset = 0x8000;
 pub const VRAMEndOffset = 0xA000;
 pub const VRAMBytes = VRAMEndOffset - VRAMBeginOffset;
@@ -100,8 +102,6 @@ fn get_current_src_dot_offset(io_lcd: LCD_MMIO) u16 {
     return io_lcd.WY; // FIXME
 }
 
-const TileMapExtent = 256;
-
 // NOTE: Lets us do index math without messing with bit ops directly
 const TileMapPixelOffset = packed struct {
     tile_pixel_x: u3,
@@ -113,8 +113,8 @@ const TileMapPixelOffset = packed struct {
 fn read_tile_pixel(tile_data: []u8, x: u3, y: u3) u2 {
     std.debug.assert(tile_data.len == 16); // FIXME use [16]u8 if possible
 
-    const lsb: u1 = @intCast((tile_data[2 * y] >> (7 - x)) & 0b1);
-    const msb: u1 = @intCast((tile_data[2 * y + 1] >> (7 - x)) & 0b1);
+    const lsb: u1 = @intCast((tile_data[@as(u4, 2) * y] >> (7 - x)) & 0b1);
+    const msb: u1 = @intCast((tile_data[@as(u4, 2) * y + 1] >> (7 - x)) & 0b1);
 
     return @as(u2, msb) << 1 | lsb;
 }
@@ -159,6 +159,7 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
             io_lcd.STAT.ppu_mode = .VBlank;
         }
 
+        io_lcd.STAT.lyc_equal_ly = io_lcd.LYC == io_lcd.LY;
         interrupt_line = interrupt_line or (io_lcd.STAT.enable_lyc_interrupt and io_lcd.STAT.lyc_equal_ly);
 
         // Only request an interrupt when the interrupt line goes up
@@ -174,10 +175,12 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
             .Drawing => {
                 const x: u16 = gb.ppu_h_cycles - OAMDurationCycles;
                 const y: u16 = io_lcd.LY;
-                // FIXME Re-enable
-                _ = x;
-                _ = y;
-                // pixel_processing_unit_draw(gb, x, y);
+
+                // FIXME properly clock this
+                pixel_processing_unit_draw(gb, x * 4 + 0, y);
+                pixel_processing_unit_draw(gb, x * 4 + 1, y);
+                pixel_processing_unit_draw(gb, x * 4 + 2, y);
+                pixel_processing_unit_draw(gb, x * 4 + 3, y);
             },
         }
 
@@ -192,14 +195,17 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
 
             if (io_lcd.LY == ScanLineCount) {
                 io_lcd.LY = 0;
-            }
 
-            io_lcd.STAT.lyc_equal_ly = io_lcd.LYC == io_lcd.LY;
+                gb.has_frame_to_consume = true;
+            }
         }
     }
 }
 
 fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
+    if (screen_x >= 160) { // FIXME properly clock this
+        return;
+    }
     const io_lcd = &gb.mmio.lcd;
 
     // Tile Data
@@ -229,16 +235,20 @@ fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) vo
 
         if (io_lcd.LCDC.enable_window) {}
 
-        const bg_tile_map_entry = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
-        std.debug.assert(bg_tile_map_entry < 128);
+        const bg_tile_map_entry: u16 = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
 
-        const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
+        // FIXME find out why we have trash in the tile map
+        if (bg_tile_map_entry < 128) {
+            std.debug.assert(bg_tile_map_entry < 128); // FIXME
 
-        const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
-        const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
+            const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
 
-        const screen_dst_offset = screen_y * ScreenWidth + screen_x;
-        gb.screen_output[screen_dst_offset] = pixel_color;
+            const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
+            const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
+
+            const screen_dst_offset = screen_y * ScreenWidth + screen_x;
+            gb.screen_output[screen_dst_offset] = pixel_color;
+        }
     }
 
     if (io_lcd.LCDC.obj_enable) {}
