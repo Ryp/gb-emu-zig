@@ -33,10 +33,19 @@ pub const LCD_MMIO = packed struct {
             Sprite8x8,
             Sprite8x16,
         },
-        bg_tile_map_area: u1, // BG tile map area: 0 = 9800–9BFF; 1 = 9C00–9FFF
-        bg_and_window_tile_data_area: u1, // BG & Window tile data area: 0 = 8800–97FF; 1 = 8000–8FFF
+        bg_tile_map_area: enum(u1) { // BG tile map area
+            Mode9800to9BFF,
+            Mode9C00to9FFF,
+        },
+        bg_and_window_tile_data_area: enum(u1) { // BG & Window tile data area
+            ModeSigned8800to97FF,
+            ModeUnsigned8000to8FFF,
+        },
         enable_window: bool, // Window enable: 0 = Off; 1 = On
-        window_tile_map_area: u1, // Window tile map area: 0 = 9800–9BFF; 1 = 9C00–9FFF
+        window_tile_map_area: enum(u1) { // Window tile map area
+            Mode9800to9BFF,
+            Mode9C00to9FFF,
+        },
         enable_lcd_and_ppu: bool, // LCD & PPU enable: 0 = Off; 1 = On
     },
     STAT: packed struct { //= 0x41, // LCDC Status (R/W)
@@ -212,15 +221,15 @@ fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) vo
     const vram_tile_data0 = gb.vram[0x0000..0x1000];
     const vram_tile_data1 = gb.vram[0x0800..0x1800];
     const tile_data_sprites = vram_tile_data0;
-    const tile_data_bg = if (io_lcd.LCDC.bg_and_window_tile_data_area == 1) vram_tile_data1 else vram_tile_data0;
+    const tile_data_bg = if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeUnsigned8000to8FFF) vram_tile_data0 else vram_tile_data1;
 
     _ = tile_data_sprites;
 
     // Tile Map
     const vram_tile_map0 = gb.vram[0x1800..0x1C00];
     const vram_tile_map1 = gb.vram[0x1C00..0x2000];
-    const tile_map_bg = if (io_lcd.LCDC.bg_tile_map_area == 1) vram_tile_map1 else vram_tile_map0;
-    const tile_map_win = if (io_lcd.LCDC.window_tile_map_area == 1) vram_tile_map1 else vram_tile_map0;
+    const tile_map_bg = if (io_lcd.LCDC.bg_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
+    const tile_map_win = if (io_lcd.LCDC.window_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
 
     _ = tile_map_win;
 
@@ -235,20 +244,24 @@ fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) vo
 
         if (io_lcd.LCDC.enable_window) {}
 
-        const bg_tile_map_entry: u16 = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
+        var bg_tile_map_entry: u16 = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
 
-        // FIXME find out why we have trash in the tile map
-        if (bg_tile_map_entry < 128) {
-            std.debug.assert(bg_tile_map_entry < 128); // FIXME
-
-            const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
-
-            const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
-            const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
-
-            const screen_dst_offset = screen_y * ScreenWidth + screen_x;
-            gb.screen_output[screen_dst_offset] = pixel_color;
+        if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
+            // FIXME Check if this is correct
+            if (bg_tile_map_entry < 128) {
+                bg_tile_map_entry += 128;
+            } else {
+                bg_tile_map_entry -= 128;
+            }
         }
+
+        const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
+
+        const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
+        const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
+
+        const screen_dst_offset = screen_y * ScreenWidth + screen_x;
+        gb.screen_output[screen_dst_offset] = pixel_color;
     }
 
     if (io_lcd.LCDC.obj_enable) {}
