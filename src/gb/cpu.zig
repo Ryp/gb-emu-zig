@@ -2,6 +2,7 @@ const std = @import("std");
 
 const lcd = @import("lcd.zig");
 const sound = @import("sound.zig");
+const joypad = @import("joypad.zig");
 
 pub const GBState = struct {
     registers: Registers,
@@ -14,6 +15,8 @@ pub const GBState = struct {
     ppu_h_cycles: u8, // FIXME not the same clock speed as the CPU
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
     has_frame_to_consume: bool,
+
+    keys: joypad.Keys,
 
     pending_cycles: u8,
     total_cycles: u64,
@@ -80,7 +83,16 @@ comptime {
 }
 
 pub const MMIO = packed struct {
-    JOYP: u8, //= 0x00, // Joypad (R/W)
+    JOYP: packed struct { //= 0x00, // Joypad (R/W)
+        released_state: u4,
+        input_selector: enum(u2) {
+            both,
+            buttons,
+            dpad,
+            none,
+        },
+        _unused: u2,
+    },
     SB: u8, //= 0x01, // Serial transfer data (R/W)
     SC: u8, //= 0x02, // Serial Transfer Control (R/W)
     _unused_03: u8,
@@ -252,6 +264,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
 
     // FIXME
     mmio.lcd.LY = 0;
+    // mmio.JOYP.input_selector = .both;
+    // mmio.JOYP._unused = 0;
 
     return GBState{
         .registers = @bitCast(Registers_R16{
@@ -270,6 +284,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .ppu_h_cycles = 0,
         .last_stat_interrupt_line = false,
         .has_frame_to_consume = false,
+        .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
         .total_cycles = 0, // In T-states
     };

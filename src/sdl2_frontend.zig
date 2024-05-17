@@ -81,33 +81,38 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
     var frame_index: u32 = 0;
 
     main_loop: while (true) {
-        // Poll events
-        var sdlEvent: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&sdlEvent) > 0) {
-            switch (sdlEvent.type) {
-                c.SDL_QUIT => {
-                    break :main_loop;
-                },
-                c.SDL_MOUSEBUTTONUP => {}, // FIXME
-                c.SDL_KEYDOWN => {
-                    const key_sym = sdlEvent.key.keysym.sym;
-                    switch (key_sym) {
-                        // c.SDLK_LEFT => ,
-                        // c.SDLK_RIGHT => ,
-                        // c.SDLK_UP => ,
-                        // c.SDLK_DOWN => ,
-                        // c.SDLK_h => ,
-                        c.SDLK_ESCAPE => {
-                            break :main_loop;
-                        },
-                        else => {},
-                    }
-                },
-                else => {},
-            }
-        }
-
         while (!gb.has_frame_to_consume) {
+            // Poll events
+            var sdlEvent: c.SDL_Event = undefined;
+            while (c.SDL_PollEvent(&sdlEvent) > 0) {
+                switch (sdlEvent.type) {
+                    c.SDL_QUIT => {
+                        break :main_loop;
+                    },
+                    c.SDL_MOUSEBUTTONUP => {}, // FIXME
+                    c.SDL_KEYDOWN, c.SDL_KEYUP => {
+                        const key_sym = sdlEvent.key.keysym.sym;
+                        const pressed = sdlEvent.type == c.SDL_KEYDOWN;
+
+                        switch (key_sym) {
+                            c.SDLK_d => gb.keys.dpad.pressed.right = pressed,
+                            c.SDLK_a => gb.keys.dpad.pressed.left = pressed,
+                            c.SDLK_w => gb.keys.dpad.pressed.up = pressed,
+                            c.SDLK_s => gb.keys.dpad.pressed.down = pressed,
+                            c.SDLK_o => gb.keys.buttons.pressed.a = pressed,
+                            c.SDLK_k => gb.keys.buttons.pressed.b = pressed,
+                            c.SDLK_b => gb.keys.buttons.pressed.select = pressed,
+                            c.SDLK_RETURN => gb.keys.buttons.pressed.start = pressed,
+                            c.SDLK_ESCAPE => {
+                                break :main_loop;
+                            },
+                            else => {},
+                        }
+                    },
+                    else => {},
+                }
+            }
+
             try execution.step(gb);
         }
 

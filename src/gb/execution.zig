@@ -10,10 +10,13 @@ const R8 = instructions.R8;
 const R16 = instructions.R16;
 
 const lcd = @import("lcd.zig");
+const joypad = @import("joypad.zig");
 
 const enable_debug = false;
 
 pub fn step(gb: *GBState) !void {
+    joypad.update_state(gb);
+
     // Service interrupts
     const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
 
@@ -37,6 +40,7 @@ pub fn step(gb: *GBState) !void {
 
     if (enable_debug) {
         print_register_debug(gb.registers);
+        std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
         std.debug.print(" | IME {b}, IE {b:0>5}, IF {b:0>5}, STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
 
         const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
