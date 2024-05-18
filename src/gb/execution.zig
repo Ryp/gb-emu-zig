@@ -55,6 +55,9 @@ pub fn step(gb: *GBState) !void {
 
     execute_instruction(gb, current_instruction);
 
+    assert(gb.registers.pc < 0x8000 or gb.registers.pc > 0xff80);
+    assert(gb.registers.sp >= 0x8000);
+
     // We're decoding all instructions fully before executing them.
     // Each byte read actually makes the CPU spin another 4 cycles, so we can just
     // add them here after the fact
@@ -79,7 +82,7 @@ fn print_register_debug(registers: Registers) void {
         registers.a,
         if (registers.flags.zero) "Z" else "_",
         if (registers.flags.substract) "N" else "_",
-        if (registers.flags.half_carry) "H" else "_",
+        if (registers.flags.half_carry == 1) "H" else "_",
         if (registers.flags.carry == 1) "C" else "_",
     });
     std.debug.print(" | B = {x:0>2}, C = {x:0>2}", .{ registers.b, registers.c });
@@ -225,16 +228,14 @@ fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
     spend_cycles(gb, 4);
 
     const registers_r16: *cpu_state.Registers_R16 = @ptrCast(&gb.registers);
-
     const r16_value = load_r16(gb.registers, instruction.r16);
 
-    const carry = @as(u32, registers_r16.hl) + @as(u32, r16_value) > 0xffff;
-    const half_carry = (registers_r16.hl & 0xfff) + (r16_value & 0xfff) > 0xfff;
+    const result, const carry = @addWithOverflow(registers_r16.hl, r16_value);
+    _, const half_carry = @addWithOverflow(@as(u8, @intCast(registers_r16.hl & 0xff)), @as(u8, @intCast(r16_value & 0xff)));
 
-    // We could try to use addWithOverflow to set the carry
-    registers_r16.hl +%= r16_value;
+    registers_r16.hl = result;
 
-    set_carry(&gb.registers, carry);
+    gb.registers.flags.carry = carry;
     gb.registers.flags.half_carry = half_carry;
     gb.registers.flags.substract = false;
 }
@@ -243,10 +244,11 @@ fn execute_inc_r8(gb: *GBState, instruction: instructions.inc_r8) void {
     const r8_value = load_r8(gb, instruction.r8);
 
     const op_result = r8_value +% 1;
+    _, const half_carry = @addWithOverflow(@as(u4, @intCast(r8_value & 0xf)), 1);
 
     store_r8(gb, instruction.r8, op_result);
 
-    gb.registers.flags.half_carry = (op_result & 0xf) == 0;
+    gb.registers.flags.half_carry = half_carry;
     gb.registers.flags.substract = false;
     gb.registers.flags.zero = op_result == 0;
 }
@@ -255,10 +257,11 @@ fn execute_dec_r8(gb: *GBState, instruction: instructions.dec_r8) void {
     const r8_value = load_r8(gb, instruction.r8);
 
     const op_result = r8_value -% 1;
+    _, const half_carry = @subWithOverflow(@as(u4, @intCast(r8_value & 0xf)), 1);
 
     store_r8(gb, instruction.r8, op_result);
 
-    gb.registers.flags.half_carry = (r8_value & 0xf) == 0;
+    gb.registers.flags.half_carry = half_carry;
     gb.registers.flags.substract = true;
     gb.registers.flags.zero = op_result == 0;
 }
@@ -311,21 +314,21 @@ fn execute_daa(gb: *GBState) void {
 fn execute_cpl(gb: *GBState) void {
     gb.registers.a ^= 0b1111_1111;
 
-    gb.registers.flags.half_carry = true;
+    gb.registers.flags.half_carry = 1;
     gb.registers.flags.substract = true;
 }
 
 fn execute_scf(gb: *GBState) void {
     gb.registers.flags.carry = 1;
 
-    gb.registers.flags.half_carry = false;
+    gb.registers.flags.half_carry = 0;
     gb.registers.flags.substract = false;
 }
 
 fn execute_ccf(gb: *GBState) void {
     gb.registers.flags.carry ^= 1;
 
-    gb.registers.flags.half_carry = false;
+    gb.registers.flags.half_carry = 0;
     gb.registers.flags.substract = false;
 }
 
@@ -361,16 +364,86 @@ fn execute_halt(gb: *GBState) void {
 }
 
 fn execute_add_a(gb: *GBState, value: u8) void {
-    const carry = @as(u16, gb.registers.a) + @as(u16, value) > 0xff;
-    const half_carry = (gb.registers.a & 0xf) + (value & 0xf) > 0xf;
+    const result, const carry = @addWithOverflow(gb.registers.a, value);
+    _, const half_carry = @addWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), value);
 
-    // We could try to use addWithOverflow to set the carry
-    gb.registers.a +%= value;
+    gb.registers.a = result;
+
+    gb.registers.flags.carry = carry;
+    gb.registers.flags.half_carry = half_carry;
+    gb.registers.flags.substract = false;
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_adc_a(gb: *GBState, value: u8) void {
+    const result_with_carry, const carry_a = @addWithOverflow(gb.registers.a, gb.registers.flags.carry);
+    const result, const carry_b = @addWithOverflow(result_with_carry, value);
+
+    const result_with_half_carry, const half_carry_a = @addWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), gb.registers.flags.carry);
+    _, const half_carry_b = @addWithOverflow(result_with_half_carry, @as(u4, @intCast(value & 0xf)));
+
+    gb.registers.a = result;
+
+    gb.registers.flags.carry = carry_a | carry_b;
+    gb.registers.flags.half_carry = half_carry_a | half_carry_b;
+    gb.registers.flags.substract = false;
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_sub_a(gb: *GBState, value: u8) void {
+    const result, const carry = @subWithOverflow(gb.registers.a, value);
+    _, const half_carry = @subWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), value);
+
+    gb.registers.a = result;
+
+    gb.registers.flags.carry = carry;
+    gb.registers.flags.half_carry = half_carry;
+    gb.registers.flags.substract = true;
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_sbc_a(gb: *GBState, value: u8) void {
+    const result_with_carry, const carry_a = @subWithOverflow(gb.registers.a, gb.registers.flags.carry);
+    const result, const carry_b = @subWithOverflow(result_with_carry, value);
+
+    const result_with_half_carry, const half_carry_a = @subWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), gb.registers.flags.carry);
+    _, const half_carry_b = @subWithOverflow(result_with_half_carry, @as(u4, @intCast(value & 0xf)));
+
+    gb.registers.a = result;
+
+    gb.registers.flags.carry = carry_a | carry_b;
+    gb.registers.flags.half_carry = half_carry_a | half_carry_b;
+    gb.registers.flags.substract = true;
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_and_a(gb: *GBState, value: u8) void {
+    gb.registers.a &= value;
 
     reset_flags(&gb.registers);
-    set_carry(&gb.registers, carry);
-    gb.registers.flags.half_carry = half_carry;
+    gb.registers.flags.half_carry = 1;
     gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_xor_a(gb: *GBState, value: u8) void {
+    gb.registers.a ^= value;
+
+    reset_flags(&gb.registers);
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_or_a(gb: *GBState, value: u8) void {
+    gb.registers.a |= value;
+
+    reset_flags(&gb.registers);
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_cp_a(gb: *GBState, value: u8) void {
+    set_carry(&gb.registers, gb.registers.a < value);
+    set_half_carry(&gb.registers, (gb.registers.a & 0xf) < (value & 0xf));
+    gb.registers.flags.substract = true;
+    gb.registers.flags.zero = gb.registers.a == value;
 }
 
 fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
@@ -381,24 +454,12 @@ fn execute_add_a_imm8(gb: *GBState, instruction: instructions.add_a_imm8) void {
     execute_add_a(gb, instruction.imm8);
 }
 
-fn execute_adc_a(gb: *GBState, value: u8) void {
-    _ = gb;
-    _ = value;
-    unreachable;
-}
-
 fn execute_adc_a_r8(gb: *GBState, instruction: instructions.adc_a_r8) void {
     execute_adc_a(gb, load_r8(gb, instruction.r8));
 }
 
 fn execute_adc_a_imm8(gb: *GBState, instruction: instructions.adc_a_imm8) void {
     execute_adc_a(gb, instruction.imm8);
-}
-
-fn execute_sub_a(gb: *GBState, value: u8) void {
-    _ = gb;
-    _ = value;
-    unreachable;
 }
 
 fn execute_sub_a_r8(gb: *GBState, instruction: instructions.sub_a_r8) void {
@@ -409,35 +470,12 @@ fn execute_sub_a_imm8(gb: *GBState, instruction: instructions.sub_a_imm8) void {
     execute_sub_a(gb, instruction.imm8);
 }
 
-fn execute_sbc_a(gb: *GBState, value: u8) void {
-    // FIXME
-    const result: u8 = gb.registers.a - value - gb.registers.flags.carry;
-
-    gb.registers.a = result;
-
-    const carry = @as(u32, gb.registers.a) - @as(u32, value) - gb.registers.flags.carry > 0xff;
-    const half_carry = (gb.registers.a & 0xf) < (value & 0xf) + gb.registers.flags.carry;
-
-    set_carry(&gb.registers, carry);
-    gb.registers.flags.half_carry = half_carry;
-    gb.registers.flags.substract = true;
-    gb.registers.flags.zero = gb.registers.a == 0;
-}
-
 fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
     execute_sbc_a(gb, load_r8(gb, instruction.r8));
 }
 
 fn execute_sbc_a_imm8(gb: *GBState, instruction: instructions.sbc_a_imm8) void {
     execute_sbc_a(gb, instruction.imm8);
-}
-
-fn execute_and_a(gb: *GBState, value: u8) void {
-    gb.registers.a &= value;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.half_carry = true;
-    gb.registers.flags.zero = gb.registers.a == 0;
 }
 
 fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
@@ -448,13 +486,6 @@ fn execute_and_a_imm8(gb: *GBState, instruction: instructions.and_a_imm8) void {
     execute_and_a(gb, instruction.imm8);
 }
 
-fn execute_xor_a(gb: *GBState, value: u8) void {
-    gb.registers.a ^= value;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.zero = gb.registers.a == 0;
-}
-
 fn execute_xor_a_r8(gb: *GBState, instruction: instructions.xor_a_r8) void {
     execute_xor_a(gb, load_r8(gb, instruction.r8));
 }
@@ -463,26 +494,12 @@ fn execute_xor_a_imm8(gb: *GBState, instruction: instructions.xor_a_imm8) void {
     execute_xor_a(gb, instruction.imm8);
 }
 
-fn execute_or_a(gb: *GBState, value: u8) void {
-    gb.registers.a |= value;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.zero = gb.registers.a == 0;
-}
-
 fn execute_or_a_r8(gb: *GBState, instruction: instructions.or_a_r8) void {
     execute_or_a(gb, load_r8(gb, instruction.r8));
 }
 
 fn execute_or_a_imm8(gb: *GBState, instruction: instructions.or_a_imm8) void {
     execute_or_a(gb, instruction.imm8);
-}
-
-fn execute_cp_a(gb: *GBState, value: u8) void {
-    set_carry(&gb.registers, gb.registers.a < value);
-    gb.registers.flags.half_carry = (gb.registers.a & 0xf) < (value & 0xf);
-    gb.registers.flags.substract = true;
-    gb.registers.flags.zero = gb.registers.a == value;
 }
 
 fn execute_cp_a_r8(gb: *GBState, instruction: instructions.cp_a_r8) void {
@@ -599,9 +616,24 @@ fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
 }
 
 fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    spend_cycles(gb, 8);
+
+    const result, const carry = if (instruction.offset < 0)
+        @subWithOverflow(gb.registers.sp, @as(u16, @intCast(-instruction.offset)))
+    else
+        @addWithOverflow(gb.registers.sp, @as(u16, @intCast(instruction.offset)));
+
+    // NOTE: Super weird carry behavior, note the bitCast.
+    _, const half_carry = @addWithOverflow(@as(u4, @intCast(gb.registers.sp & 0xf)), @as(u4, @intCast(instruction.offset & 0xf)));
+
+    assert(carry == 0);
+
+    gb.registers.sp = result;
+
+    gb.registers.flags.carry = carry; // FIXME might not be correct
+    gb.registers.flags.half_carry = half_carry;
+    gb.registers.flags.substract = false;
+    gb.registers.flags.zero = false;
 }
 
 fn execute_ld_hl_sp_plus_imm8(gb: *GBState, instruction: instructions.ld_hl_sp_plus_imm8) void {
@@ -737,7 +769,7 @@ fn execute_bit_b3_r8(gb: *GBState, instruction: instructions.bit_b3_r8) void {
     gb.registers.flags = .{
         ._unused = 0,
         .carry = gb.registers.flags.carry,
-        .half_carry = true,
+        .half_carry = 1,
         .substract = false,
         .zero = op_result == 0,
     };
@@ -799,9 +831,9 @@ fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
 
 // FIXME check if this actually takes cycles
 fn store_pc(gb: *GBState, value: u16) void {
-    gb.registers.pc = value;
-
     spend_cycles(gb, 4);
+
+    gb.registers.pc = value;
 }
 
 fn spend_cycles(gb: *GBState, cycles: u8) void {
@@ -886,4 +918,8 @@ fn reset_flags(registers: *Registers) void {
 
 fn set_carry(registers: *Registers, carry: bool) void {
     registers.flags.carry = if (carry) 1 else 0;
+}
+
+fn set_half_carry(registers: *Registers, half_carry: bool) void {
+    registers.flags.half_carry = if (half_carry) 1 else 0;
 }

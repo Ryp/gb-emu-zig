@@ -27,7 +27,7 @@ test {
     try expectEqual(cpu.FlagRegister{
         ._unused = 0,
         .carry = 1,
-        .half_carry = true,
+        .half_carry = 1,
         .substract = false,
         .zero = true,
     }, gb_state.registers.flags);

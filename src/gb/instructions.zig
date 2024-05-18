@@ -240,7 +240,7 @@ pub fn decode(mem: []const u8) !Instruction {
             .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
         } } };
     } else if (b0 == 0b1110_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .add_sp_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .add_sp_imm8 = .{ .offset = @bitCast(mem[1]) } } };
     } else if (b0 == 0b1111_1000) {
         return Instruction{ .byte_len = 2, .encoding = .{ .ld_hl_sp_plus_imm8 = .{ .imm8 = mem[1] } } };
     } else if (b0 == 0b1111_1001) {
@@ -693,7 +693,10 @@ pub const ld_imm16_a = generic_imm16;
 pub const ldh_a_imm8 = generic_imm8;
 pub const ld_a_imm16 = generic_imm16;
 
-pub const add_sp_imm8 = generic_imm8;
+pub const add_sp_imm8 = struct {
+    offset: i8,
+};
+
 pub const ld_hl_sp_plus_imm8 = generic_imm8;
 
 pub const rlc_r8 = generic_r8;
