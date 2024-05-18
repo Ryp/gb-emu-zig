@@ -360,14 +360,12 @@ fn execute_halt(gb: *GBState) void {
     unreachable;
 }
 
-fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
-    const r8_value = load_r8(gb, instruction.r8);
-
-    const carry = @as(u16, gb.registers.a) + @as(u16, r8_value) > 0xff;
-    const half_carry = (gb.registers.a & 0xf) + (r8_value & 0xf) > 0xf;
+fn execute_add_a(gb: *GBState, value: u8) void {
+    const carry = @as(u16, gb.registers.a) + @as(u16, value) > 0xff;
+    const half_carry = (gb.registers.a & 0xf) + (value & 0xf) > 0xf;
 
     // We could try to use addWithOverflow to set the carry
-    gb.registers.a +%= r8_value;
+    gb.registers.a +%= value;
 
     reset_flags(&gb.registers);
     set_carry(&gb.registers, carry);
@@ -375,28 +373,50 @@ fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
     gb.registers.flags.zero = gb.registers.a == 0;
 }
 
-fn execute_adc_a_r8(gb: *GBState, instruction: instructions.adc_a_r8) void {
+fn execute_add_a_r8(gb: *GBState, instruction: instructions.add_a_r8) void {
+    execute_add_a(gb, load_r8(gb, instruction.r8));
+}
+
+fn execute_add_a_imm8(gb: *GBState, instruction: instructions.add_a_imm8) void {
+    execute_add_a(gb, instruction.imm8);
+}
+
+fn execute_adc_a(gb: *GBState, value: u8) void {
     _ = gb;
-    _ = instruction;
+    _ = value;
+    unreachable;
+}
+
+fn execute_adc_a_r8(gb: *GBState, instruction: instructions.adc_a_r8) void {
+    execute_adc_a(gb, load_r8(gb, instruction.r8));
+}
+
+fn execute_adc_a_imm8(gb: *GBState, instruction: instructions.adc_a_imm8) void {
+    execute_adc_a(gb, instruction.imm8);
+}
+
+fn execute_sub_a(gb: *GBState, value: u8) void {
+    _ = gb;
+    _ = value;
     unreachable;
 }
 
 fn execute_sub_a_r8(gb: *GBState, instruction: instructions.sub_a_r8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    execute_sub_a(gb, load_r8(gb, instruction.r8));
 }
 
-fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
-    // FIXME
-    const r8_value = load_r8(gb, instruction.r8);
+fn execute_sub_a_imm8(gb: *GBState, instruction: instructions.sub_a_imm8) void {
+    execute_sub_a(gb, instruction.imm8);
+}
 
-    const result: u8 = gb.registers.a - r8_value - gb.registers.flags.carry;
+fn execute_sbc_a(gb: *GBState, value: u8) void {
+    // FIXME
+    const result: u8 = gb.registers.a - value - gb.registers.flags.carry;
 
     gb.registers.a = result;
 
-    const carry = @as(u32, gb.registers.a) - @as(u32, r8_value) - gb.registers.flags.carry > 0xff;
-    const half_carry = (gb.registers.a & 0xf) < (r8_value & 0xf) + gb.registers.flags.carry;
+    const carry = @as(u32, gb.registers.a) - @as(u32, value) - gb.registers.flags.carry > 0xff;
+    const half_carry = (gb.registers.a & 0xf) < (value & 0xf) + gb.registers.flags.carry;
 
     set_carry(&gb.registers, carry);
     gb.registers.flags.half_carry = half_carry;
@@ -404,91 +424,73 @@ fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
     gb.registers.flags.zero = gb.registers.a == 0;
 }
 
-fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
-    const r8_value = load_r8(gb, instruction.r8);
+fn execute_sbc_a_r8(gb: *GBState, instruction: instructions.sbc_a_r8) void {
+    execute_sbc_a(gb, load_r8(gb, instruction.r8));
+}
 
-    gb.registers.a &= r8_value;
+fn execute_sbc_a_imm8(gb: *GBState, instruction: instructions.sbc_a_imm8) void {
+    execute_sbc_a(gb, instruction.imm8);
+}
+
+fn execute_and_a(gb: *GBState, value: u8) void {
+    gb.registers.a &= value;
 
     reset_flags(&gb.registers);
     gb.registers.flags.half_carry = true;
     gb.registers.flags.zero = gb.registers.a == 0;
 }
 
-fn execute_xor_a_r8(gb: *GBState, instruction: instructions.xor_a_r8) void {
-    const r8_value = load_r8(gb, instruction.r8);
+fn execute_and_a_r8(gb: *GBState, instruction: instructions.and_a_r8) void {
+    execute_and_a(gb, load_r8(gb, instruction.r8));
+}
 
-    gb.registers.a ^= r8_value;
+fn execute_and_a_imm8(gb: *GBState, instruction: instructions.and_a_imm8) void {
+    execute_and_a(gb, instruction.imm8);
+}
+
+fn execute_xor_a(gb: *GBState, value: u8) void {
+    gb.registers.a ^= value;
+
+    reset_flags(&gb.registers);
+    gb.registers.flags.zero = gb.registers.a == 0;
+}
+
+fn execute_xor_a_r8(gb: *GBState, instruction: instructions.xor_a_r8) void {
+    execute_xor_a(gb, load_r8(gb, instruction.r8));
+}
+
+fn execute_xor_a_imm8(gb: *GBState, instruction: instructions.xor_a_imm8) void {
+    execute_xor_a(gb, instruction.imm8);
+}
+
+fn execute_or_a(gb: *GBState, value: u8) void {
+    gb.registers.a |= value;
 
     reset_flags(&gb.registers);
     gb.registers.flags.zero = gb.registers.a == 0;
 }
 
 fn execute_or_a_r8(gb: *GBState, instruction: instructions.or_a_r8) void {
-    const r8_value = load_r8(gb, instruction.r8);
-
-    gb.registers.a |= r8_value;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.zero = gb.registers.a == 0;
-}
-
-fn execute_cp_a_r8(gb: *GBState, instruction: instructions.cp_a_r8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
-}
-
-fn execute_add_a_imm8(gb: *GBState, instruction: instructions.add_a_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
-}
-
-fn execute_adc_a_imm8(gb: *GBState, instruction: instructions.adc_a_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
-}
-
-fn execute_sub_a_imm8(gb: *GBState, instruction: instructions.sub_a_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
-}
-
-fn execute_sbc_a_imm8(gb: *GBState, instruction: instructions.sbc_a_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
-}
-
-fn execute_and_a_imm8(gb: *GBState, instruction: instructions.and_a_imm8) void {
-    gb.registers.a &= instruction.imm8;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.half_carry = true;
-    gb.registers.flags.zero = gb.registers.a == 0;
-}
-
-fn execute_xor_a_imm8(gb: *GBState, instruction: instructions.xor_a_imm8) void {
-    gb.registers.a ^= instruction.imm8;
-
-    reset_flags(&gb.registers);
-    gb.registers.flags.zero = gb.registers.a == 0;
+    execute_or_a(gb, load_r8(gb, instruction.r8));
 }
 
 fn execute_or_a_imm8(gb: *GBState, instruction: instructions.or_a_imm8) void {
-    gb.registers.a |= instruction.imm8;
+    execute_or_a(gb, instruction.imm8);
+}
 
-    reset_flags(&gb.registers);
-    gb.registers.flags.zero = gb.registers.a == 0;
+fn execute_cp_a(gb: *GBState, value: u8) void {
+    set_carry(&gb.registers, gb.registers.a < value);
+    gb.registers.flags.half_carry = (gb.registers.a & 0xf) < (value & 0xf);
+    gb.registers.flags.substract = true;
+    gb.registers.flags.zero = gb.registers.a == value;
+}
+
+fn execute_cp_a_r8(gb: *GBState, instruction: instructions.cp_a_r8) void {
+    execute_cp_a(gb, load_r8(gb, instruction.r8));
 }
 
 fn execute_cp_a_imm8(gb: *GBState, instruction: instructions.cp_a_imm8) void {
-    set_carry(&gb.registers, gb.registers.a < instruction.imm8);
-    gb.registers.flags.half_carry = (gb.registers.a & 0xf) < (instruction.imm8 & 0xf);
-    gb.registers.flags.substract = true;
-    gb.registers.flags.zero = gb.registers.a == instruction.imm8;
+    execute_cp_a(gb, instruction.imm8);
 }
 
 fn execute_ret_cond(gb: *GBState, instruction: instructions.ret_cond) void {
