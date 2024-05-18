@@ -29,7 +29,7 @@ pub fn step(gb: *GBState) !void {
         gb.enable_interrupts_master = false; // Disable interrupts while we service them
 
         if (enable_debug) {
-            std.debug.print("==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT \n", .{});
+            std.debug.print("==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ==== INTERRUPT ====\n", .{});
         }
 
         execute_interrupt(gb, interrupt_jump_address);
@@ -41,10 +41,10 @@ pub fn step(gb: *GBState) !void {
     if (enable_debug) {
         print_register_debug(gb.registers);
         std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
-        std.debug.print(" | IME {b}, IE {b:0>5}, IF {b:0>5}, STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
+        std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
 
         const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-        std.debug.print(" | op {b:0>8}, {x:0>2}", .{ i_mem, i_mem });
+        std.debug.print(" | {b:0>8} {x:0>2}", .{ i_mem, i_mem });
 
         instructions.debug_print(current_instruction);
     }
@@ -77,17 +77,17 @@ fn consume_pending_cycles(gb: *GBState) void {
 }
 
 fn print_register_debug(registers: Registers) void {
-    std.debug.print("PC = {x:0>4}, SP = {x:0>4}", .{ registers.pc, registers.sp });
-    std.debug.print(" | A = {x:0>2}, Flags: {s} {s} {s} {s}", .{
+    std.debug.print("PC {x:0>4} SP {x:0>4}", .{ registers.pc, registers.sp });
+    std.debug.print(" A {x:0>2} Flags {s} {s} {s} {s}", .{
         registers.a,
         if (registers.flags.zero) "Z" else "_",
         if (registers.flags.substract) "N" else "_",
         if (registers.flags.half_carry == 1) "H" else "_",
         if (registers.flags.carry == 1) "C" else "_",
     });
-    std.debug.print(" | B = {x:0>2}, C = {x:0>2}", .{ registers.b, registers.c });
-    std.debug.print(" | D = {x:0>2}, E = {x:0>2}", .{ registers.d, registers.e });
-    std.debug.print(" | H = {x:0>2}, L = {x:0>2}", .{ registers.h, registers.l });
+    std.debug.print(" B {x:0>2} C {x:0>2}", .{ registers.b, registers.c });
+    std.debug.print(" D {x:0>2} E {x:0>2}", .{ registers.d, registers.e });
+    std.debug.print(" H {x:0>2} L {x:0>2}", .{ registers.h, registers.l });
 }
 
 fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
