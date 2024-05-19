@@ -22,8 +22,6 @@ pub const Keys = packed struct {
     },
 };
 
-// FIXME why are all buttons pressed to start with? Tetris has a soft reset behavior!
-// FIXME Tetris wants start to pass first screen but it's not working so far, just DPAD
 // FIXME enable interrupt handling
 // FIXME don't allow pressing opposite directions at the same time (games break)
 pub fn update_state(gb: *cpu.GBState) void {

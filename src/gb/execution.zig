@@ -1,9 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const cpu_state = @import("cpu.zig");
-const GBState = cpu_state.GBState;
-const Registers = cpu_state.Registers;
+const cpu = @import("cpu.zig");
+const GBState = cpu.GBState;
+const Registers = cpu.Registers;
 
 const instructions = @import("instructions.zig");
 const R8 = instructions.R8;
@@ -227,7 +227,7 @@ fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
     spend_cycles(gb, 4);
 
-    const registers_r16: *cpu_state.Registers_R16 = @ptrCast(&gb.registers);
+    const registers_r16: *cpu.Registers_R16 = @ptrCast(&gb.registers);
     const r16_value = load_r16(gb.registers, instruction.r16);
 
     const result, const carry = @addWithOverflow(registers_r16.hl, r16_value);
@@ -543,7 +543,7 @@ fn execute_jp_imm16(gb: *GBState, instruction: instructions.jp_imm16) void {
 }
 
 fn execute_jp_hl(gb: *GBState) void {
-    const registers_r16: cpu_state.Registers_R16 = @bitCast(gb.registers);
+    const registers_r16: cpu.Registers_R16 = @bitCast(gb.registers);
 
     // FIXME here storing PC doesn't cost anything for some reason
     // While other times it does.
@@ -801,32 +801,84 @@ fn execute_invalid_instruction(gb: *GBState) void {
 fn load_memory_u8(gb: *GBState, address: u16) u8 {
     spend_cycles(gb, 4);
 
-    return gb.memory[address];
-}
+    switch (address) {
+        0x0000...0x7fff => return gb.memory[address], // FIXME Is reading the ROM legal?
+        0x8000...0x9fff => { // VRAM
+            // is only readable when the PPU is not drawing
+            const is_ppu_drawing = gb.mmio.lcd.STAT.ppu_mode == .Drawing;
+            assert(!is_ppu_drawing);
+            if (is_ppu_drawing) {
+                return 0xff;
+            } else {
+                return gb.vram[address - 0x8000];
+            }
+        },
+        0xa000...0xbfff => return gb.memory[address], // External RAM
+        0xc000...0xcfff => return gb.memory[address], // RAM
+        0xd000...0xdfff => return gb.memory[address], // RAM (Banked on CGB)
+        0xe000...0xfdff => unreachable, // Echo RAMBANK
+        0xfe00...0xfe9f => return gb.memory[address], // OAMRAM
+        0xfea0...0xfeff => unreachable, // Nothing?
+        0xff00...0xff7f, 0xffff => { // MMIO
+            const offset: u8 = @intCast(address & 0xff);
+            const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
+            const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
 
-fn load_memory_u16(gb: *GBState, address: u16) u16 {
-    spend_cycles(gb, 8);
-
-    return @as(u16, gb.memory[address]) | (@as(u16, @intCast(gb.memory[address + 1])) << 8);
+            switch (typed_offset) {
+                .JOYP => return mmio_bytes[offset] & 0x0F,
+                _ => return mmio_bytes[offset],
+            }
+        },
+        0xff80...0xfffe => return gb.memory[address], // HRAM
+    }
 }
 
 fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
-    // NOTE: Avoid writing in the ROM
-    assert(address >= 0x8000);
-
-    gb.memory[address] = value;
-
     spend_cycles(gb, 4);
+
+    switch (address) {
+        0x0000...0x7fff => { // ROM
+            // Avoid writing here
+            // Unfortunately it's common for official games to do, so avoid asserting for now.
+            // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
+            // assert(address == 0x2000);
+        }, // We can't write into the ROM
+        0x8000...0x9fff => { // VRAM
+            // is only writable when the PPU is not drawing
+            // FIXME assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            gb.vram[address - 0x8000] = value;
+        },
+        0xa000...0xbfff => gb.memory[address] = value, // External RAM
+        0xc000...0xcfff => gb.memory[address] = value, // RAM
+        0xd000...0xdfff => gb.memory[address] = value, // RAM (Banked on CGB)
+        0xe000...0xfdff => {}, // FIXME Echo RAMBANK
+        0xfe00...0xfe9f => gb.memory[address] = value, // OAMRAM
+        0xfea0...0xfeff => {}, // FIXME Nothing?
+        0xff00...0xff7f, 0xffff => { // MMIO
+            const offset: u8 = @intCast(address & 0xff);
+            const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
+            const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
+
+            switch (typed_offset) {
+                // We could probably just write the full byte and not worry
+                .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
+                _ => mmio_bytes[offset] = value,
+            }
+        },
+        0xff80...0xfffe => gb.memory[address] = value, // HRAM
+    }
+}
+
+fn load_memory_u16(gb: *GBState, address: u16) u16 {
+    const l = load_memory_u8(gb, address);
+    const h = load_memory_u8(gb, address + 1);
+
+    return @as(u16, l) | (@as(u16, @intCast(h)) << 8);
 }
 
 fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
-    // NOTE: Avoid writing in the ROM
-    assert(address >= 0x8000);
-
-    gb.memory[address] = @intCast(value & 0xff);
-    gb.memory[address + 1] = @intCast(value >> 8);
-
-    spend_cycles(gb, 8);
+    store_memory_u8(gb, address, @intCast(value & 0xff));
+    store_memory_u8(gb, address + 1, @intCast(value >> 8));
 }
 
 // FIXME check if this actually takes cycles
@@ -867,7 +919,7 @@ fn store_r8(gb: *GBState, r8: R8, value: u8) void {
 }
 
 fn load_r16(registers: Registers, r16: R16) u16 {
-    const registers_r16: cpu_state.Registers_R16 = @bitCast(registers);
+    const registers_r16: cpu.Registers_R16 = @bitCast(registers);
 
     return switch (r16) {
         .bc => registers_r16.bc,
@@ -879,7 +931,7 @@ fn load_r16(registers: Registers, r16: R16) u16 {
 }
 
 fn store_r16(registers: *Registers, r16: R16, value: u16) void {
-    var registers_r16: *cpu_state.Registers_R16 = @ptrCast(registers);
+    var registers_r16: *cpu.Registers_R16 = @ptrCast(registers);
 
     switch (r16) {
         .bc => registers_r16.bc = value,
