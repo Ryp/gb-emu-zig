@@ -307,8 +307,29 @@ fn execute_rra(gb: *GBState) void {
 }
 
 fn execute_daa(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    if (gb.registers.flags.substract) {
+        if (gb.registers.flags.half_carry == 1) {
+            gb.registers.a +%= 0xFA;
+        }
+        if (gb.registers.flags.carry == 1) {
+            gb.registers.a +%= 0xA0;
+        }
+    } else {
+        var a: i16 = gb.registers.a;
+        if ((gb.registers.a & 0xF) > 0x9 or gb.registers.flags.half_carry == 1) {
+            a += 0x6;
+        }
+        if ((a & 0x1F0) > 0x90 or gb.registers.flags.carry == 1) {
+            a += 0x60;
+            gb.registers.flags.carry = 1;
+        } else {
+            gb.registers.flags.carry = 0;
+        }
+        gb.registers.a = @intCast(a & 0xff);
+    }
+
+    gb.registers.flags.half_carry = 0;
+    gb.registers.flags.zero = gb.registers.a == 0;
 }
 
 fn execute_cpl(gb: *GBState) void {
