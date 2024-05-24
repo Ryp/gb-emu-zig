@@ -233,7 +233,7 @@ fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
 
     // FIXME Carry and half carry probably don't match
     const result, const carry = @addWithOverflow(registers_r16.hl, r16_value);
-    _, const half_carry = @addWithOverflow(@as(u8, @intCast(registers_r16.hl & 0xff)), @as(u8, @intCast(r16_value & 0xff)));
+    _, const half_carry = @addWithOverflow(@as(u8, @truncate(registers_r16.hl)), @as(u8, @truncate(r16_value)));
 
     registers_r16.hl = result;
 
@@ -246,7 +246,7 @@ fn execute_inc_r8(gb: *GBState, instruction: instructions.inc_r8) void {
     const r8_value = load_r8(gb, instruction.r8);
 
     const op_result = r8_value +% 1;
-    _, const half_carry = @addWithOverflow(@as(u4, @intCast(r8_value & 0xf)), 1);
+    _, const half_carry = @addWithOverflow(@as(u4, @truncate(r8_value)), 1);
 
     store_r8(gb, instruction.r8, op_result);
 
@@ -259,7 +259,7 @@ fn execute_dec_r8(gb: *GBState, instruction: instructions.dec_r8) void {
     const r8_value = load_r8(gb, instruction.r8);
 
     const op_result = r8_value -% 1;
-    _, const half_carry = @subWithOverflow(@as(u4, @intCast(r8_value & 0xf)), 1);
+    _, const half_carry = @subWithOverflow(@as(u4, @truncate(r8_value)), 1);
 
     store_r8(gb, instruction.r8, op_result);
 
@@ -388,7 +388,7 @@ fn execute_halt(gb: *GBState) void {
 
 fn execute_add_a(gb: *GBState, value: u8) void {
     const result, const carry = @addWithOverflow(gb.registers.a, value);
-    _, const half_carry = @addWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), value);
+    _, const half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.a)), value);
 
     gb.registers.a = result;
 
@@ -402,8 +402,8 @@ fn execute_adc_a(gb: *GBState, value: u8) void {
     const result_with_carry, const carry_a = @addWithOverflow(gb.registers.a, gb.registers.flags.carry);
     const result, const carry_b = @addWithOverflow(result_with_carry, value);
 
-    const result_with_half_carry, const half_carry_a = @addWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), gb.registers.flags.carry);
-    _, const half_carry_b = @addWithOverflow(result_with_half_carry, @as(u4, @intCast(value & 0xf)));
+    const result_with_half_carry, const half_carry_a = @addWithOverflow(@as(u4, @truncate(gb.registers.a)), gb.registers.flags.carry);
+    _, const half_carry_b = @addWithOverflow(result_with_half_carry, @as(u4, @truncate(value)));
 
     gb.registers.a = result;
 
@@ -415,7 +415,7 @@ fn execute_adc_a(gb: *GBState, value: u8) void {
 
 fn execute_sub_a(gb: *GBState, value: u8) void {
     const result, const carry = @subWithOverflow(gb.registers.a, value);
-    _, const half_carry = @subWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), value);
+    _, const half_carry = @subWithOverflow(@as(u4, @truncate(gb.registers.a)), value);
 
     gb.registers.a = result;
 
@@ -429,8 +429,8 @@ fn execute_sbc_a(gb: *GBState, value: u8) void {
     const result_with_carry, const carry_a = @subWithOverflow(gb.registers.a, gb.registers.flags.carry);
     const result, const carry_b = @subWithOverflow(result_with_carry, value);
 
-    const result_with_half_carry, const half_carry_a = @subWithOverflow(@as(u4, @intCast(gb.registers.a & 0xf)), gb.registers.flags.carry);
-    _, const half_carry_b = @subWithOverflow(result_with_half_carry, @as(u4, @intCast(value & 0xf)));
+    const result_with_half_carry, const half_carry_a = @subWithOverflow(@as(u4, @truncate(gb.registers.a)), gb.registers.flags.carry);
+    _, const half_carry_b = @subWithOverflow(result_with_half_carry, @as(u4, @truncate(value)));
 
     gb.registers.a = result;
 
@@ -647,7 +647,7 @@ fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void
     else
         @addWithOverflow(gb.registers.sp, @as(u16, @intCast(instruction.offset)));
 
-    _, const half_carry = @addWithOverflow(@as(u4, @intCast(gb.registers.sp & 0xf)), @as(u4, @intCast(instruction.offset & 0xf)));
+    _, const half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.sp)), @as(u4, @intCast(instruction.offset & 0xf)));
 
     gb.registers.sp = result;
 
@@ -842,7 +842,7 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0xfe00...0xfe9f => return gb.memory[address], // OAMRAM
         0xfea0...0xfeff => unreachable, // Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
-            const offset: u8 = @intCast(address & 0xff);
+            const offset: u8 = @truncate(address);
             const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
             const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
 
@@ -878,7 +878,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         0xfe00...0xfe9f => gb.memory[address] = value, // OAMRAM
         0xfea0...0xfeff => {}, // FIXME Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
-            const offset: u8 = @intCast(address & 0xff);
+            const offset: u8 = @truncate(address);
             const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
             const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
 
@@ -912,8 +912,8 @@ fn load_memory_u16(gb: *GBState, address: u16) u16 {
 }
 
 fn store_memory_u16(gb: *GBState, address: u16, value: u16) void {
-    store_memory_u8(gb, address, @intCast(value & 0xff));
-    store_memory_u8(gb, address + 1, @intCast(value >> 8));
+    store_memory_u8(gb, address, @truncate(value));
+    store_memory_u8(gb, address + 1, @truncate(value >> 8));
 }
 
 // FIXME check if this actually takes cycles
