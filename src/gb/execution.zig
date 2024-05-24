@@ -228,12 +228,12 @@ fn execute_dec_r16(gb: *GBState, instruction: instructions.dec_r16) void {
 fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
     spend_cycles(gb, 4);
 
-    const registers_r16: *cpu.Registers_R16 = @ptrCast(&gb.registers);
     const r16_value = load_r16(gb.registers, instruction.r16);
+    const registers_r16: *cpu.Registers_R16 = @ptrCast(&gb.registers);
 
-    // FIXME Carry and half carry probably don't match
+    // NOTE: Half carry is super weird here
     const result, const carry = @addWithOverflow(registers_r16.hl, r16_value);
-    _, const half_carry = @addWithOverflow(@as(u8, @truncate(registers_r16.hl)), @as(u8, @truncate(r16_value)));
+    _, const half_carry = @addWithOverflow(@as(u12, @truncate(registers_r16.hl)), @as(u12, @truncate(r16_value)));
 
     registers_r16.hl = result;
 
@@ -356,12 +356,8 @@ fn execute_ccf(gb: *GBState) void {
 }
 
 fn execute_jr_imm8(gb: *GBState, instruction: instructions.jr_imm8) void {
-    // FIXME Zig is weird about mixing unsigned and signed values, so the ugly ternary is what it is.
-    if (instruction.offset < 0) {
-        store_pc(gb, gb.registers.pc - @as(u16, @intCast(-instruction.offset)));
-    } else {
-        store_pc(gb, gb.registers.pc + @as(u16, @intCast(instruction.offset)));
-    }
+    // NOTE: using two's-complement to ignore signedness
+    store_pc(gb, gb.registers.pc +% @as(u16, @bitCast(@as(i16, instruction.offset))));
 }
 
 fn execute_jr_cond_imm8(gb: *GBState, instruction: instructions.jr_cond_imm8) void {
@@ -463,8 +459,9 @@ fn execute_or_a(gb: *GBState, value: u8) void {
 }
 
 fn execute_cp_a(gb: *GBState, value: u8) void {
-    set_carry(&gb.registers, gb.registers.a < value);
-    set_half_carry(&gb.registers, (gb.registers.a & 0xf) < (value & 0xf));
+    _, gb.registers.flags.carry = @subWithOverflow(gb.registers.a, value);
+    _, gb.registers.flags.half_carry = @subWithOverflow(@as(u4, @truncate(gb.registers.a)), @as(u4, @truncate(value)));
+
     gb.registers.flags.substract = true;
     gb.registers.flags.zero = gb.registers.a == value;
 }
@@ -641,31 +638,36 @@ fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
 fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void {
     spend_cycles(gb, 8);
 
-    // FIXME
-    const result, const carry = if (instruction.offset < 0)
-        @subWithOverflow(gb.registers.sp, @as(u16, @intCast(-instruction.offset)))
-    else
-        @addWithOverflow(gb.registers.sp, @as(u16, @intCast(instruction.offset)));
-
-    _, const half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.sp)), @as(u4, @intCast(instruction.offset & 0xf)));
-
-    gb.registers.sp = result;
-
-    gb.registers.flags.carry = carry; // FIXME might not be correct
-    gb.registers.flags.half_carry = half_carry;
+    // NOTE: very tricky carry behavior
+    _, gb.registers.flags.carry = @addWithOverflow(@as(u8, @truncate(gb.registers.sp)), @as(u8, @bitCast(instruction.offset)));
+    _, gb.registers.flags.half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.sp)), @as(u4, @intCast(instruction.offset & 0xf)));
     gb.registers.flags.substract = false;
     gb.registers.flags.zero = false;
+
+    // NOTE: using two's-complement to ignore signedness
+    gb.registers.sp = gb.registers.sp +% @as(u16, @bitCast(@as(i16, instruction.offset)));
 }
 
 fn execute_ld_hl_sp_plus_imm8(gb: *GBState, instruction: instructions.ld_hl_sp_plus_imm8) void {
-    _ = gb;
-    _ = instruction;
-    unreachable;
+    spend_cycles(gb, 4);
+
+    // NOTE: very tricky carry behavior
+    _, gb.registers.flags.carry = @addWithOverflow(@as(u8, @truncate(gb.registers.sp)), @as(u8, @bitCast(instruction.offset)));
+    _, gb.registers.flags.half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.sp)), @as(u4, @intCast(instruction.offset & 0xf)));
+    gb.registers.flags.substract = false;
+    gb.registers.flags.zero = false;
+
+    // NOTE: using two's-complement to ignore signedness
+    const registers_r16: *cpu.Registers_R16 = @ptrCast(&gb.registers);
+    registers_r16.hl = gb.registers.sp +% @as(u16, @bitCast(@as(i16, instruction.offset)));
 }
 
 fn execute_ld_sp_hl(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    spend_cycles(gb, 4);
+
+    const registers_r16: cpu.Registers_R16 = @bitCast(gb.registers);
+
+    gb.registers.sp = registers_r16.hl;
 }
 
 fn execute_di(gb: *GBState) void {
