@@ -1,5 +1,6 @@
 const std = @import("std");
 const cpu = @import("cpu.zig");
+const assert = std.debug.assert;
 
 pub const ScreenWidth = 160;
 pub const ScreenHeight = 144;
@@ -14,15 +15,15 @@ pub const VRAMBeginOffset = 0x8000;
 pub const VRAMEndOffset = 0xA000;
 pub const VRAMBytes = VRAMEndOffset - VRAMBeginOffset;
 
-const OAMDurationCycles = 20; // FIXME add PPU name
-const DrawMinDurationCycles = 43;
-const HBlankMaxDurationCycles = 51;
+const OAMDurationCycles = 80; // FIXME add PPU name
+const DrawMinDurationCycles = 172;
+const HBlankMaxDurationCycles = 204;
 const ScanLineDurationCycles = OAMDurationCycles + DrawMinDurationCycles + HBlankMaxDurationCycles;
 const ScanLineCount = ScreenHeight + 10;
 
 comptime {
-    std.debug.assert(ScanLineDurationCycles == 114);
-    std.debug.assert(ScanLineCount == 154);
+    assert(ScanLineDurationCycles == 456);
+    assert(ScanLineCount == 154);
 }
 
 pub const LCD_MMIO = packed struct {
@@ -101,10 +102,10 @@ const Sprite = packed struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(LCD_MMIO) == 16);
-    std.debug.assert(@sizeOf(Palette) == 1);
-    std.debug.assert(@sizeOf(Sprite) == 4);
-    std.debug.assert(@sizeOf(TileMapPixelOffset) == 2);
+    assert(@sizeOf(LCD_MMIO) == 16);
+    assert(@sizeOf(Palette) == 1);
+    assert(@sizeOf(Sprite) == 4);
+    assert(@sizeOf(TileMapPixelOffset) == 2);
 }
 
 fn get_current_src_dot_offset(io_lcd: LCD_MMIO) u16 {
@@ -120,7 +121,7 @@ const TileMapPixelOffset = packed struct {
 };
 
 fn read_tile_pixel(tile_data: []u8, x: u3, y: u3) u2 {
-    std.debug.assert(tile_data.len == 16); // FIXME use [16]u8 if possible
+    assert(tile_data.len == 16); // FIXME use [16]u8 if possible
 
     const lsb: u1 = @intCast((tile_data[@as(u4, 2) * y] >> (7 - x)) & 0b1);
     const msb: u1 = @intCast((tile_data[@as(u4, 2) * y + 1] >> (7 - x)) & 0b1);
@@ -142,15 +143,18 @@ fn eval_palette_raw(palette: u8, color_id: u2) u2 {
     return @intCast((palette >> (color_id * 2)) & 0b11);
 }
 
-pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
+pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
     const io_lcd = &gb.mmio.lcd;
     var cycles_remaining = cycle_count;
 
-    // FIXME Handle io_lcd.LCDC.enable_lcd_and_ppu correctly
+    if (!io_lcd.LCDC.enable_lcd_and_ppu) {
+        return;
+    }
 
     while (cycles_remaining > 0) {
         // Update PPU Mode and get current interrupt line state
         var interrupt_line = false;
+        const vlank_was_on = io_lcd.STAT.ppu_mode == .VBlank;
 
         if (io_lcd.LY < ScreenHeight) {
             if (gb.ppu_h_cycles < OAMDurationCycles) {
@@ -166,6 +170,10 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
         } else {
             interrupt_line = interrupt_line or io_lcd.STAT.enable_vblank_interrupt;
             io_lcd.STAT.ppu_mode = .VBlank;
+
+            if (!vlank_was_on) {
+                gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskVBlank;
+            }
         }
 
         io_lcd.STAT.lyc_equal_ly = io_lcd.LYC == io_lcd.LY;
@@ -185,16 +193,14 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
                 const x: u16 = gb.ppu_h_cycles - OAMDurationCycles;
                 const y: u16 = io_lcd.LY;
 
-                // FIXME properly clock this
-                pixel_processing_unit_draw(gb, x * 4 + 0, y);
-                pixel_processing_unit_draw(gb, x * 4 + 1, y);
-                pixel_processing_unit_draw(gb, x * 4 + 2, y);
-                pixel_processing_unit_draw(gb, x * 4 + 3, y);
+                if (x < ScreenWidth) { // FIXME OBJs make relationship between cycles and horizontal position variable
+                    draw_dot(gb, x, y);
+                }
             },
         }
 
         // Update variables for the next iteration
-        cycles_remaining -= 4; // FIXME
+        cycles_remaining -= 1; // FIXME
         gb.ppu_h_cycles += 1;
 
         if (gb.ppu_h_cycles == ScanLineDurationCycles) {
@@ -211,10 +217,13 @@ pub fn step_pixel_processing_unit(gb: *cpu.GBState, cycle_count: u8) void {
     }
 }
 
-fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
-    if (screen_x >= 160) { // FIXME properly clock this
-        return;
-    }
+pub fn reset_ppu(gb: *cpu.GBState) void {
+    // FIXME not sure this is strictly needed
+    gb.mmio.lcd.LY = 0;
+    gb.ppu_h_cycles = 0;
+}
+
+fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
     const io_lcd = &gb.mmio.lcd;
 
     // Tile Data
@@ -233,8 +242,8 @@ fn pixel_processing_unit_draw(gb: *cpu.GBState, screen_x: u16, screen_y: u16) vo
 
     _ = tile_map_win;
 
-    std.debug.assert(screen_x < ScreenWidth);
-    std.debug.assert(screen_y < ScreenHeight);
+    assert(screen_x < ScreenWidth);
+    assert(screen_y < ScreenHeight);
 
     if (io_lcd.LCDC.enable_bg_and_window) {
         const tile_map_x = (screen_x + io_lcd.SCX) % TileMapExtent;

@@ -71,7 +71,7 @@ fn consume_pending_cycles(gb: *GBState) void {
     gb.total_cycles += gb.pending_cycles;
 
     if (gb.pending_cycles > 0) {
-        lcd.step_pixel_processing_unit(gb, gb.pending_cycles);
+        lcd.step_ppu(gb, gb.pending_cycles);
     }
 
     gb.pending_cycles = 0; // FIXME
