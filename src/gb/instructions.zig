@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const gb_endian = std.builtin.Endian.little;
 
 pub fn decode(mem: []const u8) !Instruction {
@@ -8,16 +9,16 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .nop = undefined } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0001) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_r16_imm16 = .{
-            .r16 = decode_r16(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
             .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0010) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_r16mem_a = .{
-            .r16mem = decode_r16mem(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16mem = decode_r16mem(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1010) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_a_r16mem = .{
-            .r16mem = decode_r16mem(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16mem = decode_r16mem(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if (b0 == 0b0000_1000) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_sp = .{
@@ -25,27 +26,27 @@ pub fn decode(mem: []const u8) !Instruction {
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0011) {
         return Instruction{ .byte_len = 1, .encoding = .{ .inc_r16 = .{
-            .r16 = decode_r16(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1011) {
         return Instruction{ .byte_len = 1, .encoding = .{ .dec_r16 = .{
-            .r16 = decode_r16(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1001) {
         return Instruction{ .byte_len = 1, .encoding = .{ .add_hl_r16 = .{
-            .r16 = decode_r16(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0100) {
         return Instruction{ .byte_len = 1, .encoding = .{ .inc_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
         } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0101) {
         return Instruction{ .byte_len = 1, .encoding = .{ .dec_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
         } } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0110) {
         return Instruction{ .byte_len = 2, .encoding = .{ .ld_r8_imm8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
             .imm8 = mem[1],
         } } };
     } else if (b0 == 0b0000_0111) {
@@ -70,7 +71,7 @@ pub fn decode(mem: []const u8) !Instruction {
         } } };
     } else if ((b0 & 0b1110_0111) == 0b0010_0000) {
         return Instruction{ .byte_len = 2, .encoding = .{ .jr_cond_imm8 = .{
-            .cond = decode_cond(std.mem.readPackedInt(u2, mem, 3, gb_endian)),
+            .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .offset = @bitCast(mem[1]),
         } } };
     } else if (b0 == 0b0001_0000) {
@@ -79,40 +80,40 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .halt = undefined } }; // Parse halt first or it'll be eaten by ld_r8_r8
     } else if ((b0 & 0b1100_0000) == 0b0100_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_r8_r8 = .{
-            .r8_dst = decode_r8(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
-            .r8_src = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8_dst = decode_r8(read_bits_from_byte(u3, b0, 3)),
+            .r8_src = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1000_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .add_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1000_1000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .adc_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1001_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .sub_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1001_1000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .sbc_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1010_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .and_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1010_1000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .xor_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1011_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .or_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if ((b0 & 0b1111_1000) == 0b1011_1000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .cp_a_r8 = .{
-            .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+            .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if (b0 == 0b1100_0110) {
         return Instruction{ .byte_len = 2, .encoding = .{ .add_a_imm8 = .{ .imm8 = mem[1] } } };
@@ -132,7 +133,7 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 2, .encoding = .{ .cp_a_imm8 = .{ .imm8 = mem[1] } } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ret_cond = .{
-            .cond = decode_cond(std.mem.readPackedInt(u2, mem, 3, gb_endian)),
+            .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
         } } };
     } else if (b0 == 0b1100_1001) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ret = undefined } };
@@ -140,7 +141,7 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .reti = undefined } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0010) {
         return Instruction{ .byte_len = 3, .encoding = .{ .jp_cond_imm16 = .{
-            .cond = decode_cond(std.mem.readPackedInt(u2, mem, 3, gb_endian)),
+            .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
         } } };
     } else if (b0 == 0b1100_0011) {
@@ -151,7 +152,7 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .jp_hl = undefined } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0100) {
         return Instruction{ .byte_len = 3, .encoding = .{ .call_cond_imm16 = .{
-            .cond = decode_cond(std.mem.readPackedInt(u2, mem, 3, gb_endian)),
+            .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
         } } };
     } else if (b0 == 0b1100_1101) {
@@ -160,15 +161,15 @@ pub fn decode(mem: []const u8) !Instruction {
         } } };
     } else if ((b0 & 0b1100_0111) == 0b1100_0111) {
         return Instruction{ .byte_len = 1, .encoding = .{ .rst_tgt3 = .{
-            .target_addr = decode_tgt3(std.mem.readPackedInt(u3, mem, 3, gb_endian)),
+            .target_addr = decode_tgt3(read_bits_from_byte(u3, b0, 3)),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b1100_0001) {
         return Instruction{ .byte_len = 1, .encoding = .{ .pop_r16stk = .{
-            .r16stk = decode_r16stk(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16stk = decode_r16stk(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b1100_0101) {
         return Instruction{ .byte_len = 1, .encoding = .{ .push_r16stk = .{
-            .r16stk = decode_r16stk(std.mem.readPackedInt(u2, mem, 4, gb_endian)),
+            .r16stk = decode_r16stk(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if (b0 == 0b1100_1011) { // 0xCB prefix opcodes
         const b1 = mem[1];
@@ -177,50 +178,50 @@ pub fn decode(mem: []const u8) !Instruction {
 
         if (masked_b1_a == 0b0000_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .rlc_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0000_1000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .rrc_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0001_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .rl_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0001_1000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .rr_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0010_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .sla_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0010_1000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .sra_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0011_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .swap_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_a == 0b0011_1000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .srl_r8 = .{
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_b == 0b0100_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .bit_b3_r8 = .{
-                .bit_index = std.mem.readPackedInt(u3, mem, 3, gb_endian),
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .bit_index = read_bits_from_byte(u3, b1, 3),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_b == 0b1000_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .res_b3_r8 = .{
-                .bit_index = std.mem.readPackedInt(u3, mem, 3, gb_endian),
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .bit_index = read_bits_from_byte(u3, b1, 3),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         } else if (masked_b1_b == 0b1100_0000) {
             return Instruction{ .byte_len = 2, .encoding = .{ .set_b3_r8 = .{
-                .bit_index = std.mem.readPackedInt(u3, mem, 3, gb_endian),
-                .r8 = decode_r8(std.mem.readPackedInt(u3, mem, 0, gb_endian)),
+                .bit_index = read_bits_from_byte(u3, b1, 3),
+                .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
             } } };
         }
     } else if (b0 == 0b1110_0010) {
@@ -258,6 +259,15 @@ pub fn decode(mem: []const u8) !Instruction {
     }
 
     return error.UnknownInstruction;
+}
+
+// Read sub-u8 type from u8 value and bit offset
+fn read_bits_from_byte(comptime T: type, op_byte: u8, bit_offset: usize) T {
+    const src_type_bit_size = @bitSizeOf(@TypeOf(op_byte));
+    const dst_type_bit_size = @bitSizeOf(T);
+    assert(bit_offset + dst_type_bit_size <= src_type_bit_size);
+
+    return @truncate(op_byte >> @intCast(bit_offset));
 }
 
 const OpCode = enum {
