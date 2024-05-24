@@ -12,9 +12,9 @@ pub const GBState = struct {
     vram: []u8,
 
     screen_output: []u8,
-    ppu_h_cycles: u8, // FIXME not the same clock speed as the CPU
+    ppu_h_cycles: u16, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
-    has_frame_to_consume: bool,
+    has_frame_to_consume: bool, // Tell the frontend to consume screen_output
 
     keys: joypad.Keys,
 
@@ -80,7 +80,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .bc = 0x0013,
             .de = 0x00D8,
             .hl = 0x014D,
-            .af = 0x01B0,
+            .af = 0x01B0, // NOTE: The lowest nibble HAS to be set to zero.
             .sp = 0xFFFE,
             .pc = 0x0100,
         }),
@@ -315,7 +315,7 @@ pub const MMIO_Offset = enum(u8) {
     // NR52       = 0x26, // Sound on/off
     // WAV_START  = 0x30, // Wave pattern start
     // WAV_END    = 0x3F, // Wave pattern end
-    // LCDC       = 0x40, // LCD Control (R/W)
+    LCDC = 0x40, // LCD Control (R/W)
     // STAT       = 0x41, // LCDC Status (R/W)
     // SCY        = 0x42, // Scroll Y (R/W)
     // SCX        = 0x43, // Scroll X (R/W)

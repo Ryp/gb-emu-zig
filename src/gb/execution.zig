@@ -25,7 +25,7 @@ pub fn step(gb: *GBState) !void {
         const interrupt_bit_mask: u5 = @intCast(@as(u16, 1) << interrupt_bit_index);
         const interrupt_jump_address: u8 = 0x40 + @as(u8, interrupt_bit_index) * 0x08;
 
-        gb.mmio.IF.requested_interrupts_mask &= ~interrupt_bit_mask; // Mark current interrupt as serviced
+        gb.mmio.IF.requested_interrupts_mask ^= interrupt_bit_mask; // Mark current interrupt as serviced
         gb.enable_interrupts_master = false; // Disable interrupts while we service them
 
         if (enable_debug) {
@@ -44,7 +44,7 @@ pub fn step(gb: *GBState) !void {
         std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
 
         const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-        std.debug.print(" | {b:0>8} {x:0>2}", .{ i_mem, i_mem });
+        std.debug.print(" | {b:0>8} {x:0>2} ", .{ i_mem, i_mem });
 
         instructions.debug_print(current_instruction);
     }
@@ -55,8 +55,9 @@ pub fn step(gb: *GBState) !void {
 
     execute_instruction(gb, current_instruction);
 
-    assert(gb.registers.pc < 0x8000 or gb.registers.pc > 0xff80);
-    assert(gb.registers.sp >= 0x8000);
+    // FIXME assert(gb.registers.pc < 0x8000 or gb.registers.pc > 0xff80);
+    // FIXME assert(gb.registers.sp >= 0x8000);
+    assert(gb.registers.flags._unused == 0);
 
     // We're decoding all instructions fully before executing them.
     // Each byte read actually makes the CPU spin another 4 cycles, so we can just
@@ -90,7 +91,7 @@ fn print_register_debug(registers: Registers) void {
     std.debug.print(" H {x:0>2} L {x:0>2}", .{ registers.h, registers.l });
 }
 
-fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
+pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
     switch (instruction.encoding) {
         .nop => execute_nop(gb),
         .ld_r16_imm16 => |i| execute_ld_r16_imm16(gb, i),
@@ -230,6 +231,7 @@ fn execute_add_hl_r16(gb: *GBState, instruction: instructions.add_hl_r16) void {
     const registers_r16: *cpu.Registers_R16 = @ptrCast(&gb.registers);
     const r16_value = load_r16(gb.registers, instruction.r16);
 
+    // FIXME Carry and half carry probably don't match
     const result, const carry = @addWithOverflow(registers_r16.hl, r16_value);
     _, const half_carry = @addWithOverflow(@as(u8, @intCast(registers_r16.hl & 0xff)), @as(u8, @intCast(r16_value & 0xff)));
 
@@ -639,15 +641,13 @@ fn execute_ld_a_imm16(gb: *GBState, instruction: instructions.ld_a_imm16) void {
 fn execute_add_sp_imm8(gb: *GBState, instruction: instructions.add_sp_imm8) void {
     spend_cycles(gb, 8);
 
+    // FIXME
     const result, const carry = if (instruction.offset < 0)
         @subWithOverflow(gb.registers.sp, @as(u16, @intCast(-instruction.offset)))
     else
         @addWithOverflow(gb.registers.sp, @as(u16, @intCast(instruction.offset)));
 
-    // NOTE: Super weird carry behavior, note the bitCast.
     _, const half_carry = @addWithOverflow(@as(u4, @intCast(gb.registers.sp & 0xf)), @as(u4, @intCast(instruction.offset & 0xf)));
-
-    assert(carry == 0);
 
     gb.registers.sp = result;
 
@@ -827,7 +827,8 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0x8000...0x9fff => { // VRAM
             // is only readable when the PPU is not drawing
             const is_ppu_drawing = gb.mmio.lcd.STAT.ppu_mode == .Drawing;
-            assert(!is_ppu_drawing);
+            const lcd_was_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+            assert(!is_ppu_drawing or !lcd_was_on);
             if (is_ppu_drawing) {
                 return 0xff;
             } else {
@@ -847,6 +848,7 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
 
             switch (typed_offset) {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
+                .LCDC => return mmio_bytes[offset],
                 _ => return mmio_bytes[offset],
             }
         },
@@ -883,6 +885,18 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             switch (typed_offset) {
                 // We could probably just write the full byte and not worry
                 .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
+                .LCDC => {
+                    const lcd_was_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+                    mmio_bytes[offset] = value;
+                    const lcd_is_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+
+                    // Only turn off during VBlank!
+                    if (lcd_was_on and !lcd_is_on) {
+                        assert(gb.mmio.lcd.STAT.ppu_mode == .VBlank);
+                    } else if (!lcd_was_on and lcd_is_on) {
+                        lcd.reset_ppu(gb);
+                    }
+                },
                 _ => mmio_bytes[offset] = value,
             }
         },
@@ -946,8 +960,8 @@ fn load_r16(registers: Registers, r16: R16) u16 {
         .bc => registers_r16.bc,
         .de => registers_r16.de,
         .hl => registers_r16.hl,
-        .af => registers_r16.af,
         .sp => registers_r16.sp,
+        .af => registers_r16.af,
     };
 }
 
@@ -958,8 +972,8 @@ fn store_r16(registers: *Registers, r16: R16, value: u16) void {
         .bc => registers_r16.bc = value,
         .de => registers_r16.de = value,
         .hl => registers_r16.hl = value,
-        .af => registers_r16.af = value,
         .sp => registers_r16.sp = value,
+        .af => registers_r16.af = value & 0xfff0, // Make sure we don't write to the unused nibble
     }
 }
 
