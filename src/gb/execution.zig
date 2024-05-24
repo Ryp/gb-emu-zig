@@ -388,7 +388,7 @@ fn execute_halt(gb: *GBState) void {
 
 fn execute_add_a(gb: *GBState, value: u8) void {
     const result, const carry = @addWithOverflow(gb.registers.a, value);
-    _, const half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.a)), value);
+    _, const half_carry = @addWithOverflow(@as(u4, @truncate(gb.registers.a)), @as(u4, @truncate(value)));
 
     gb.registers.a = result;
 
@@ -415,7 +415,7 @@ fn execute_adc_a(gb: *GBState, value: u8) void {
 
 fn execute_sub_a(gb: *GBState, value: u8) void {
     const result, const carry = @subWithOverflow(gb.registers.a, value);
-    _, const half_carry = @subWithOverflow(@as(u4, @truncate(gb.registers.a)), value);
+    _, const half_carry = @subWithOverflow(@as(u4, @truncate(gb.registers.a)), @as(u4, @truncate(value)));
 
     gb.registers.a = result;
 
