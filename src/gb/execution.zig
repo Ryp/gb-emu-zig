@@ -575,25 +575,25 @@ fn execute_jp_hl(gb: *GBState) void {
 
 fn execute_call_cond_imm16(gb: *GBState, instruction: instructions.call_cond_imm16) void {
     if (eval_cond(gb.registers, instruction.cond)) {
-        execute_call_imm16(gb, .{ .imm16 = instruction.imm16 });
+        execute_call(gb, instruction.imm16);
     }
 }
 
-fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
+fn execute_call(gb: *GBState, address: u16) void {
     gb.registers.sp -= 2;
 
     store_memory_u16(gb, gb.registers.sp, gb.registers.pc);
 
-    store_pc(gb, instruction.imm16);
+    store_pc(gb, address);
+}
+
+fn execute_call_imm16(gb: *GBState, instruction: instructions.call_imm16) void {
+    execute_call(gb, instruction.imm16);
 }
 
 // Like a call but 2 bytes cheapers
 fn execute_rst_tgt3(gb: *GBState, instruction: instructions.rst_tgt3) void {
-    gb.registers.sp -= 2;
-
-    store_memory_u16(gb, gb.registers.sp, gb.registers.pc);
-
-    store_pc(gb, instruction.target_addr);
+    execute_call(gb, instruction.target_addr);
 }
 
 fn execute_pop_r16stk(gb: *GBState, instruction: instructions.pop_r16stk) void {
