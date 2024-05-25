@@ -16,6 +16,9 @@ pub const GBState = struct {
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
     has_frame_to_consume: bool, // Tell the frontend to consume screen_output
 
+    dma_active: bool,
+    dma_current_offset: u8,
+
     keys: joypad.Keys,
 
     pending_cycles: u8,
@@ -92,6 +95,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .ppu_h_cycles = 0,
         .last_stat_interrupt_line = false,
         .has_frame_to_consume = false,
+        .dma_active = false,
+        .dma_current_offset = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
         .total_cycles = 0, // In T-states
@@ -321,7 +326,7 @@ pub const MMIO_Offset = enum(u8) {
     // SCX        = 0x43, // Scroll X (R/W)
     // LY         = 0x44, // LCDC Y-Coordinate (R)
     // LYC        = 0x45, // LY Compare (R/W)
-    // DMA        = 0x46, // DMA Transfer and Start Address (W)
+    DMA = 0x46, // DMA Transfer and Start Address (W)
     // BGP        = 0x47, // BG Palette Data (R/W) - Non CGB Mode Only
     // OBP0       = 0x48, // Object Palette 0 Data (R/W) - Non CGB Mode Only
     // OBP1       = 0x49, // Object Palette 1 Data (R/W) - Non CGB Mode Only
@@ -366,3 +371,5 @@ pub const InterruptMaskLCD = 0b00010;
 pub const InterruptMaskTimer = 0b00100;
 pub const InterruptMaskSerial = 0b01000;
 pub const InterruptMaskJoypad = 0b10000;
+
+pub const DMACopyByteCount = 160;

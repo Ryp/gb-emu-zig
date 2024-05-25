@@ -71,10 +71,37 @@ fn consume_pending_cycles(gb: *GBState) void {
     gb.total_cycles += gb.pending_cycles;
 
     if (gb.pending_cycles > 0) {
+        step_dma(gb, gb.pending_cycles);
         lcd.step_ppu(gb, gb.pending_cycles);
     }
 
     gb.pending_cycles = 0; // FIXME
+}
+
+fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
+    if (!gb.dma_active) {
+        return;
+    }
+
+    // Compute copy regions
+    const dma_src_address = @as(u16, gb.mmio.lcd.DMA) << 8;
+    const src = gb.memory[dma_src_address .. dma_src_address + cpu.DMACopyByteCount];
+    const dst = gb.memory[0xfe00..0xfea0]; // OAM
+    assert(src.len == dst.len);
+
+    // Copy 1 byte per M-cycle
+    const byte_count_to_copy_max = cycle_count / 4;
+    const copy_offset_begin = gb.dma_current_offset;
+    const copy_offset_end = @min(gb.dma_current_offset + byte_count_to_copy_max, cpu.DMACopyByteCount);
+
+    std.mem.copyForwards(u8, dst[copy_offset_begin..copy_offset_end], src[copy_offset_begin..copy_offset_end]);
+
+    // Update state
+    gb.dma_current_offset = copy_offset_end;
+
+    if (copy_offset_end == cpu.DMACopyByteCount) {
+        gb.dma_active = false;
+    }
 }
 
 fn print_register_debug(registers: Registers) void {
@@ -825,8 +852,12 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
     spend_cycles(gb, 4);
 
     switch (address) {
-        0x0000...0x7fff => return gb.memory[address], // FIXME Is reading the ROM legal?
+        0x0000...0x7fff => {
+            assert(!gb.dma_active);
+            return gb.memory[address];
+        },
         0x8000...0x9fff => { // VRAM
+            assert(!gb.dma_active);
             // is only readable when the PPU is not drawing
             const is_ppu_drawing = gb.mmio.lcd.STAT.ppu_mode == .Drawing;
             const lcd_was_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
@@ -841,7 +872,12 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0xc000...0xcfff => return gb.memory[address], // RAM
         0xd000...0xdfff => return gb.memory[address], // RAM (Banked on CGB)
         0xe000...0xfdff => unreachable, // Echo RAMBANK
-        0xfe00...0xfe9f => return gb.memory[address], // OAMRAM
+        0xfe00...0xfe9f => { // OAMRAM
+            assert(!gb.dma_active);
+            assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
+            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            return gb.memory[address];
+        },
         0xfea0...0xfeff => unreachable, // Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
@@ -850,7 +886,7 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
 
             switch (typed_offset) {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
-                .LCDC => return mmio_bytes[offset],
+                .LCDC, .DMA => return mmio_bytes[offset],
                 _ => return mmio_bytes[offset],
             }
         },
@@ -863,21 +899,28 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
 
     switch (address) {
         0x0000...0x7fff => { // ROM
+            assert(!gb.dma_active);
             // Avoid writing here
             // Unfortunately it's common for official games to do, so avoid asserting for now.
             // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
-            // assert(address == 0x2000);
+            assert(address == 0x2000);
         }, // We can't write into the ROM
         0x8000...0x9fff => { // VRAM
+            assert(!gb.dma_active);
             // is only writable when the PPU is not drawing
-            // FIXME assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
             gb.vram[address - 0x8000] = value;
         },
         0xa000...0xbfff => gb.memory[address] = value, // External RAM
         0xc000...0xcfff => gb.memory[address] = value, // RAM
         0xd000...0xdfff => gb.memory[address] = value, // RAM (Banked on CGB)
         0xe000...0xfdff => {}, // FIXME Echo RAMBANK
-        0xfe00...0xfe9f => gb.memory[address] = value, // OAMRAM
+        0xfe00...0xfe9f => { // OAMRAM
+            assert(!gb.dma_active);
+            assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
+            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            gb.memory[address] = value;
+        },
         0xfea0...0xfeff => {}, // FIXME Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
@@ -898,6 +941,13 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     } else if (!lcd_was_on and lcd_is_on) {
                         lcd.reset_ppu(gb);
                     }
+                },
+                .DMA => {
+                    assert(value <= 0xdf);
+                    gb.mmio.lcd.DMA = value;
+
+                    gb.dma_active = true;
+                    gb.dma_current_offset = 0;
                 },
                 _ => mmio_bytes[offset] = value,
             }
