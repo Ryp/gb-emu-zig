@@ -11,6 +11,10 @@ pub const ScreenSizeBytes = ScreenWidth * ScreenHeight; // FIXME
 
 pub const TileMapExtent = 256;
 
+pub const OAMSpriteCount = 40;
+pub const OAMMemoryByteCount = 160;
+pub const LineMaxActiveSprites = 10;
+
 pub const VRAMBeginOffset = 0x8000;
 pub const VRAMEndOffset = 0xA000;
 pub const VRAMBytes = VRAMEndOffset - VRAMBeginOffset;
@@ -21,9 +25,12 @@ const HBlankMaxDurationCycles = 204;
 const ScanLineDurationCycles = OAMDurationCycles + DrawMinDurationCycles + HBlankMaxDurationCycles;
 const ScanLineCount = ScreenHeight + 10;
 
+const u8_2 = @Vector(2, u8);
+
 comptime {
     assert(ScanLineDurationCycles == 456);
     assert(ScanLineCount == 154);
+    assert(@sizeOf(Sprite) * OAMSpriteCount == OAMMemoryByteCount);
 }
 
 pub const LCD_MMIO = packed struct {
@@ -87,9 +94,9 @@ const Palette = packed struct {
     id_3_color: u2,
 };
 
-const Sprite = packed struct {
-    position_x: u8,
+pub const Sprite = packed struct {
     position_y: u8,
+    position_x: u8,
     tile_index: u8,
     attributes: packed struct {
         cgb_palette: u3, // CGB palette [CGB Mode Only]: Which of OBP0–7 to use
@@ -154,24 +161,27 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
     while (cycles_remaining > 0) {
         // Update PPU Mode and get current interrupt line state
         var interrupt_line = false;
-        const vlank_was_on = io_lcd.STAT.ppu_mode == .VBlank;
+        const previous_ppu_mode = io_lcd.STAT.ppu_mode;
 
         if (io_lcd.LY < ScreenHeight) {
             if (gb.ppu_h_cycles < OAMDurationCycles) {
                 interrupt_line = interrupt_line or io_lcd.STAT.enable_scan_oam_interrupt;
                 io_lcd.STAT.ppu_mode = .ScanOAM;
             } else if (gb.ppu_h_cycles < OAMDurationCycles + DrawMinDurationCycles) {
-                // There's no interrupt for this mode
-                io_lcd.STAT.ppu_mode = .Drawing;
+                // There's no interrupt line change for this mode
+                if (previous_ppu_mode != .Drawing) {
+                    io_lcd.STAT.ppu_mode = .Drawing;
+                    compute_active_sprites_for_line(gb, io_lcd.LY); // Computed during OAM on a real DMG
+                }
             } else {
                 interrupt_line = interrupt_line or io_lcd.STAT.enable_hblank_interrupt;
                 io_lcd.STAT.ppu_mode = .HBlank;
             }
         } else {
             interrupt_line = interrupt_line or io_lcd.STAT.enable_vblank_interrupt;
-            io_lcd.STAT.ppu_mode = .VBlank;
 
-            if (!vlank_was_on) {
+            if (previous_ppu_mode != .VBlank) {
+                io_lcd.STAT.ppu_mode = .VBlank;
                 gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskVBlank;
             }
         }
@@ -191,10 +201,10 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
             .HBlank, .VBlank, .ScanOAM => {},
             .Drawing => {
                 const x: u16 = gb.ppu_h_cycles - OAMDurationCycles;
-                const y: u16 = io_lcd.LY;
+                const y = io_lcd.LY;
 
                 if (x < ScreenWidth) { // FIXME OBJs make relationship between cycles and horizontal position variable
-                    draw_dot(gb, x, y);
+                    draw_dot(gb, @intCast(x), y);
                 }
             },
         }
@@ -229,10 +239,8 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
     // Tile Data
     const vram_tile_data0 = gb.vram[0x0000..0x1000];
     const vram_tile_data1 = gb.vram[0x0800..0x1800];
-    const tile_data_sprites = vram_tile_data0;
     const tile_data_bg = if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeUnsigned8000to8FFF) vram_tile_data0 else vram_tile_data1;
-
-    _ = tile_data_sprites;
+    const tile_data_sprites = vram_tile_data0;
 
     // Tile Map
     const vram_tile_map0 = gb.vram[0x1800..0x1C00];
@@ -245,6 +253,9 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
     assert(screen_x < ScreenWidth);
     assert(screen_y < ScreenHeight);
 
+    // FIXME What's the default pixel value?
+    var pixel_color: u2 = 0;
+
     if (io_lcd.LCDC.enable_bg_and_window) {
         const tile_map_x = (screen_x + io_lcd.SCX) % TileMapExtent;
         const tile_map_y = (screen_y + io_lcd.SCY) % TileMapExtent;
@@ -253,7 +264,7 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
 
         if (io_lcd.LCDC.enable_window) {}
 
-        var bg_tile_map_entry: u16 = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
+        var bg_tile_map_entry = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
 
         if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
             // FIXME Check if this is correct
@@ -264,14 +275,94 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
             }
         }
 
-        const bg_tile = tile_data_bg[bg_tile_map_entry * 16 .. bg_tile_map_entry * 16 + 16];
+        const bg_tile = get_tile_data(tile_data_bg, bg_tile_map_entry);
 
         const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
-        const pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
-
-        const screen_dst_offset = screen_y * ScreenWidth + screen_x;
-        gb.screen_output[screen_dst_offset] = pixel_color;
+        pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
     }
 
-    if (io_lcd.LCDC.obj_enable) {}
+    if (io_lcd.LCDC.obj_enable) {
+        // NOTE: sprites position_x and screen_x start at an offset of 16 pixels
+        const sprites_extent = get_sprites_extent(gb);
+
+        for (gb.active_sprite_indices[0..gb.active_sprite_count]) |sprite_index| {
+            const sprite = gb.oam_sprites[sprite_index];
+            const pixel_coord_sprite = screen_coords_to_sprite_coords(sprite, .{ @intCast(screen_x), @intCast(screen_y) });
+
+            const is_sprite_visible = all(pixel_coord_sprite >= u8_2{ 0, 0 }) and all(pixel_coord_sprite < sprites_extent);
+
+            if (is_sprite_visible) {
+                const tile = get_tile_data(tile_data_sprites, sprite.tile_index);
+
+                // FIXME This is completely wrong but works for very simple cases
+                const color_id = read_tile_pixel(tile, @intCast(pixel_coord_sprite[0]), @intCast(pixel_coord_sprite[1] % 8));
+                pixel_color = eval_palette(io_lcd.BGP, color_id);
+            }
+        }
+    }
+
+    const screen_dst_offset = screen_y * ScreenWidth + screen_x;
+    gb.screen_output[screen_dst_offset] = pixel_color;
+}
+
+fn get_tile_data(tile_data: []u8, tile_index: u12) []u8 {
+    return tile_data[tile_index * 16 .. tile_index * 16 + 16];
+}
+
+// FIMXE
+pub fn all(vector: anytype) bool {
+    const type_info = @typeInfo(@TypeOf(vector));
+    assert(type_info.Vector.child == bool);
+    assert(type_info.Vector.len > 1);
+
+    return @reduce(.And, vector);
+}
+
+fn screen_coords_to_sprite_coords(sprite: Sprite, screen_coord: u8_2) u8_2 {
+    // NOTE: wrapping is not a problem here since we only care about the case when a pixel is inside a sprite.
+    return .{
+        screen_coord[0] + 8 -% sprite.position_x,
+        screen_coord[1] + 16 -% sprite.position_y,
+    };
+}
+
+fn compute_active_sprites_for_line(gb: *cpu.GBState, line_index: u32) void {
+    // NOTE: sprites position_y and LY start at an offset of 16 pixels
+    const sprites_extent = get_sprites_extent(gb);
+    const sprite_y_start = line_index + 16 - sprites_extent[1];
+    const sprite_y_stop = line_index + 16;
+
+    var current_visible_sprite_index: u8 = 0;
+
+    for (gb.oam_sprites, 0..) |sprite, sprite_index| {
+        const is_sprite_visible = sprite.position_y > sprite_y_start and sprite.position_y <= sprite_y_stop;
+
+        if (is_sprite_visible) {
+            gb.active_sprite_indices[current_visible_sprite_index] = @intCast(sprite_index);
+            current_visible_sprite_index += 1;
+        }
+
+        if (current_visible_sprite_index == LineMaxActiveSprites) {
+            break;
+        }
+    }
+
+    gb.active_sprite_count = current_visible_sprite_index;
+
+    std.sort.pdq(u8, gb.active_sprite_indices[0..gb.active_sprite_count], gb.oam_sprites, sprite_less_than);
+}
+
+// FIXME
+fn sprite_less_than(oam_sprites: [OAMSpriteCount]Sprite, a_index: u8, b_index: u8) bool {
+    const a = oam_sprites[a_index];
+    const b = oam_sprites[b_index];
+
+    return a.position_x < b.position_x;
+}
+
+fn get_sprites_extent(gb: *cpu.GBState) u8_2 {
+    return switch (gb.mmio.lcd.LCDC.obj_size_mode) {
+        .Sprite8x8 => .{ 8, 8 },
+        .Sprite8x16 => .{ 8, 16 },
+    };
 }

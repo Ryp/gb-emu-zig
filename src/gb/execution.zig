@@ -86,7 +86,8 @@ fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
     // Compute copy regions
     const dma_src_address = @as(u16, gb.mmio.lcd.DMA) << 8;
     const src = gb.memory[dma_src_address .. dma_src_address + cpu.DMACopyByteCount];
-    const dst = gb.memory[0xfe00..0xfea0]; // OAM
+    const dst: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+
     assert(src.len == dst.len);
 
     // Copy 1 byte per M-cycle
@@ -876,7 +877,11 @@ fn load_memory_u8(gb: *GBState, address: u16) u8 {
             assert(!gb.dma_active);
             assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
             assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
-            return gb.memory[address];
+
+            const offset: u8 = @truncate(address);
+            const oam_memory: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+
+            return oam_memory[offset];
         },
         0xfea0...0xfeff => unreachable, // Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
@@ -919,7 +924,11 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             assert(!gb.dma_active);
             assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
             assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
-            gb.memory[address] = value;
+
+            const offset: u8 = @truncate(address);
+            const oam_memory: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+
+            oam_memory[offset] = value;
         },
         0xfea0...0xfeff => {}, // FIXME Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO

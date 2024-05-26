@@ -10,11 +10,15 @@ pub const GBState = struct {
     mmio: *MMIO,
     enable_interrupts_master: bool, // IME
     vram: []u8,
+    oam_sprites: [lcd.OAMSpriteCount]lcd.Sprite,
 
+    // PPU internal state
     screen_output: []u8,
     ppu_h_cycles: u16, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
     has_frame_to_consume: bool, // Tell the frontend to consume screen_output
+    active_sprite_indices: [lcd.LineMaxActiveSprites]u8,
+    active_sprite_count: u8,
 
     dma_active: bool,
     dma_current_offset: u8,
@@ -91,10 +95,13 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .mmio = mmio,
         .enable_interrupts_master = false,
         .vram = vram,
+        .oam_sprites = undefined,
         .screen_output = screen_output,
         .ppu_h_cycles = 0,
         .last_stat_interrupt_line = false,
         .has_frame_to_consume = false,
+        .active_sprite_indices = undefined,
+        .active_sprite_count = 0,
         .dma_active = false,
         .dma_current_offset = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
