@@ -25,8 +25,8 @@ pub const GBState = struct {
 
     keys: joypad.Keys,
 
-    pending_cycles: u8,
-    total_cycles: u64,
+    pending_t_cycles: u8, // How much the CPU is in advance over other components
+    total_t_cycles: u64,
 };
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
@@ -105,8 +105,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .dma_active = false,
         .dma_current_offset = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
-        .pending_cycles = 0, // In T-states, is how much the CPU is in advance over other components
-        .total_cycles = 0, // In T-states
+        .pending_t_cycles = 0,
+        .total_t_cycles = 0,
     };
 }
 
@@ -161,7 +161,7 @@ pub const Registers_R16 = packed struct {
 };
 
 pub const FlagRegister = packed struct {
-    _unused: u4,
+    _unused: u4, // NOTE: This has to stay zero otherwise pop/push could break
     carry: u1,
     half_carry: u1,
     substract: bool,
@@ -372,6 +372,9 @@ comptime {
     std.debug.assert(@offsetOf(MMIO, "PCM34") == 0x77);
     std.debug.assert(@sizeOf(MMIO) == 256);
 }
+
+pub const TClockPeriod = 4 * 1024 * 1024;
+pub const DIVClockPeriod = 16 * 1024;
 
 pub const InterruptMaskVBlank = 0b00001;
 pub const InterruptMaskLCD = 0b00010;

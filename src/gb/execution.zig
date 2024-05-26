@@ -62,20 +62,22 @@ pub fn step(gb: *GBState) !void {
     // We're decoding all instructions fully before executing them.
     // Each byte read actually makes the CPU spin another 4 cycles, so we can just
     // add them here after the fact
-    gb.pending_cycles += @as(u8, current_instruction.byte_len) * 4;
+    gb.pending_t_cycles += @as(u8, current_instruction.byte_len) * 4;
 
     consume_pending_cycles(gb);
 }
 
 fn consume_pending_cycles(gb: *GBState) void {
-    gb.total_cycles += gb.pending_cycles;
+    gb.total_t_cycles += gb.pending_t_cycles;
 
-    if (gb.pending_cycles > 0) {
-        step_dma(gb, gb.pending_cycles);
-        lcd.step_ppu(gb, gb.pending_cycles);
+    if (gb.pending_t_cycles > 0) {
+        step_dma(gb, gb.pending_t_cycles);
+        lcd.step_ppu(gb, gb.pending_t_cycles);
+
+        gb.mmio.DIV = @truncate(gb.total_t_cycles / (cpu.TClockPeriod / cpu.DIVClockPeriod));
     }
 
-    gb.pending_cycles = 0; // FIXME
+    gb.pending_t_cycles = 0; // FIXME
 }
 
 fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
@@ -985,7 +987,7 @@ fn store_pc(gb: *GBState, value: u16) void {
 }
 
 fn spend_cycles(gb: *GBState, cycles: u8) void {
-    gb.pending_cycles += cycles;
+    gb.pending_t_cycles += cycles;
 }
 
 fn load_r8(gb: *GBState, r8: R8) u8 {
