@@ -7,7 +7,6 @@ const lcd = @import("gb/lcd.zig");
 
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
-    @cInclude("SDL2/SDL_ttf.h");
 });
 
 const BgColor = c.SDL_Color{ .r = 0, .g = 0, .b = 128, .a = 255 };
@@ -46,12 +45,6 @@ fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
     };
     errdefer c.SDL_DestroyRenderer(renderer);
 
-    if (c.TTF_Init() != 0) {
-        c.SDL_Log("Unable to initialize TTF: %s", c.TTF_GetError());
-        return error.SDLInitializationFailed;
-    }
-    errdefer c.TTF_Quit();
-
     return .{
         .window = window,
         .renderer = renderer,
@@ -60,8 +53,6 @@ fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
 
 fn destroy_sdl_context(allocator: std.mem.Allocator, sdl_context: SdlContext) void {
     _ = allocator; // FIXME
-
-    c.TTF_Quit();
 
     c.SDL_DestroyRenderer(sdl_context.renderer);
     c.SDL_DestroyWindow(sdl_context.window);
