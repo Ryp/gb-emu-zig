@@ -5,6 +5,8 @@ const cpu = @import("gb/cpu.zig");
 const execution = @import("gb/execution.zig");
 const lcd = @import("gb/lcd.zig");
 
+const tracy = @import("tracy.zig");
+
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
@@ -103,6 +105,8 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
                     else => {},
                 }
             }
+
+            tracy.frameMark();
 
             try execution.step(gb);
         }

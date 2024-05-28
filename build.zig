@@ -11,6 +11,26 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const enable_tracy = b.option(bool, "tracy", "Enable Tracy support") orelse false;
+    const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse false;
+
+    const exe_options = b.addOptions();
+    exe_options.addOption(bool, "enable_tracy", enable_tracy);
+    exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
+    exe.root_module.addOptions("build_options", exe_options);
+
+    if (enable_tracy) {
+        const tracy_path = "external/tracy";
+        const client_cpp = "external/tracy/public/TracyClient.cpp";
+        const tracy_c_flags: []const []const u8 = &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+
+        exe.root_module.addIncludePath(.{ .path = tracy_path });
+        exe.root_module.addCSourceFile(.{ .file = .{ .path = client_cpp }, .flags = tracy_c_flags });
+
+        exe.linkSystemLibrary("c++");
+        exe.linkLibC();
+    }
+
     b.installArtifact(exe);
 
     exe.linkSystemLibrary("c");
