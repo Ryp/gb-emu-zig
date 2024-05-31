@@ -9,8 +9,6 @@ pub const PixelsPerByte = 4;
 // pub const ScreenSizeBytes = (ScreenWidth * ScreenHeight) / PixelsPerByte; // FIXME
 pub const ScreenSizeBytes = ScreenWidth * ScreenHeight; // FIXME
 
-pub const TileMapExtent = 256;
-
 pub const OAMSpriteCount = 40;
 pub const OAMMemoryByteCount = 160;
 pub const LineMaxActiveSprites = 10;
@@ -112,7 +110,7 @@ comptime {
     assert(@sizeOf(LCD_MMIO) == 16);
     assert(@sizeOf(Palette) == 1);
     assert(@sizeOf(Sprite) == 4);
-    assert(@sizeOf(TileMapPixelOffset) == 2);
+    assert(@sizeOf(PositionTileLocal) == 2);
 }
 
 fn get_current_src_dot_offset(io_lcd: LCD_MMIO) u16 {
@@ -120,10 +118,15 @@ fn get_current_src_dot_offset(io_lcd: LCD_MMIO) u16 {
 }
 
 // NOTE: Lets us do index math without messing with bit ops directly
-const TileMapPixelOffset = packed struct {
-    tile_pixel_x: u3,
+const PositionInTileMap = packed struct {
+    x: u8,
+    y: u8,
+};
+
+const PositionTileLocal = packed struct {
+    pixel_x: u3,
     tile_x: u5,
-    tile_pixel_y: u3,
+    pixel_y: u3,
     tile_y: u5,
 };
 
@@ -200,7 +203,7 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
         switch (io_lcd.STAT.ppu_mode) {
             .HBlank, .VBlank, .ScanOAM => {},
             .Drawing => {
-                const x: u16 = gb.ppu_h_cycles - OAMDurationCycles;
+                const x = gb.ppu_h_cycles - OAMDurationCycles;
                 const y = io_lcd.LY;
 
                 if (x < ScreenWidth) { // FIXME OBJs make relationship between cycles and horizontal position variable
@@ -233,7 +236,27 @@ pub fn reset_ppu(gb: *cpu.GBState) void {
     gb.ppu_h_cycles = 0;
 }
 
-fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
+fn position_tile_local_from_position_in_tile_map(pixel_offset: PositionInTileMap) PositionTileLocal {
+    return @bitCast(pixel_offset);
+}
+
+fn tile_map_index_flat_from_tile_local_position(position_tile_local: PositionTileLocal) u10 {
+    // Avoid manually writing bit manipulations or index math!
+    const FlatIndexAdapater = packed struct {
+        tile_x: u5,
+        tile_y: u5,
+    };
+
+    return @bitCast(FlatIndexAdapater{
+        .tile_x = position_tile_local.tile_x,
+        .tile_y = position_tile_local.tile_y,
+    });
+}
+
+fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
+    assert(screen_x < ScreenWidth);
+    assert(screen_y < ScreenHeight);
+
     const io_lcd = &gb.mmio.lcd;
 
     // Tile Data
@@ -250,35 +273,35 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
 
     _ = tile_map_win;
 
-    assert(screen_x < ScreenWidth);
-    assert(screen_y < ScreenHeight);
-
     // FIXME What's the default pixel value?
     var pixel_color: u2 = 0;
 
     if (io_lcd.LCDC.enable_bg_and_window) {
-        const tile_map_x = (screen_x + io_lcd.SCX) % TileMapExtent;
-        const tile_map_y = (screen_y + io_lcd.SCY) % TileMapExtent;
+        const position_in_tile_map = PositionInTileMap{
+            .x = screen_x +% io_lcd.SCX,
+            .y = screen_y +% io_lcd.SCY,
+        };
 
-        const pixel_offset: TileMapPixelOffset = @bitCast(tile_map_y * TileMapExtent + tile_map_x);
+        const position_tile_local = position_tile_local_from_position_in_tile_map(position_in_tile_map);
+        const tile_map_index_flat = tile_map_index_flat_from_tile_local_position(position_tile_local);
 
-        if (io_lcd.LCDC.enable_window) {}
+        var bg_tile_data_index = tile_map_bg[tile_map_index_flat];
 
-        var bg_tile_map_entry = tile_map_bg[@as(u16, pixel_offset.tile_y) * 32 + pixel_offset.tile_x];
-
+        // FIXME make this more better
         if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
-            // FIXME Check if this is correct
-            if (bg_tile_map_entry < 128) {
-                bg_tile_map_entry += 128;
+            if (bg_tile_data_index < 128) {
+                bg_tile_data_index += 128;
             } else {
-                bg_tile_map_entry -= 128;
+                bg_tile_data_index -= 128;
             }
         }
 
-        const bg_tile = get_tile_data(tile_data_bg, bg_tile_map_entry);
+        const bg_tile_data = get_tile_data(tile_data_bg, bg_tile_data_index);
 
-        const bg_color_id = read_tile_pixel(bg_tile, pixel_offset.tile_pixel_x, pixel_offset.tile_pixel_y);
+        const bg_color_id = read_tile_pixel(bg_tile_data, position_tile_local.pixel_x, position_tile_local.pixel_y);
         pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
+
+        if (io_lcd.LCDC.enable_window) {} // FIXME
     }
 
     if (io_lcd.LCDC.obj_enable) {
@@ -292,16 +315,16 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u16, screen_y: u16) void {
             const is_sprite_visible = all(pixel_coord_sprite >= u8_2{ 0, 0 }) and all(pixel_coord_sprite < sprites_extent);
 
             if (is_sprite_visible) {
-                const tile = get_tile_data(tile_data_sprites, sprite.tile_index);
+                const tile_data = get_tile_data(tile_data_sprites, sprite.tile_index);
 
                 // FIXME This is completely wrong but works for very simple cases
-                const color_id = read_tile_pixel(tile, @intCast(pixel_coord_sprite[0]), @intCast(pixel_coord_sprite[1] % 8));
+                const color_id = read_tile_pixel(tile_data, @intCast(pixel_coord_sprite[0]), @intCast(pixel_coord_sprite[1] % 8));
                 pixel_color = eval_palette(io_lcd.BGP, color_id);
             }
         }
     }
 
-    const screen_dst_offset = screen_y * ScreenWidth + screen_x;
+    const screen_dst_offset = @as(u16, screen_y) * ScreenWidth + screen_x;
     gb.screen_output[screen_dst_offset] = pixel_color;
 }
 
