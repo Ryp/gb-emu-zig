@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const tracy = @import("../tracy.zig");
+
 const cpu = @import("cpu.zig");
 const GBState = cpu.GBState;
 const Registers = cpu.Registers;
@@ -15,6 +17,9 @@ const joypad = @import("joypad.zig");
 const enable_debug = false;
 
 pub fn step(gb: *GBState) !void {
+    const scope = tracy.trace(@src());
+    defer scope.end();
+
     joypad.update_state(gb);
 
     // Service interrupts
@@ -68,6 +73,8 @@ pub fn step(gb: *GBState) !void {
 }
 
 fn consume_pending_cycles(gb: *GBState) void {
+    const scope = tracy.trace(@src());
+    defer scope.end();
     gb.total_t_cycles += gb.pending_t_cycles;
 
     if (gb.pending_t_cycles > 0) {
@@ -81,6 +88,9 @@ fn consume_pending_cycles(gb: *GBState) void {
 }
 
 fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
+    const scope = tracy.trace(@src());
+    defer scope.end();
+
     if (!gb.dma_active) {
         return;
     }

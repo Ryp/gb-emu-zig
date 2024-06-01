@@ -1,11 +1,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const tracy = @import("tracy.zig");
+
 const cpu = @import("gb/cpu.zig");
 const execution = @import("gb/execution.zig");
 const lcd = @import("gb/lcd.zig");
-
-const tracy = @import("tracy.zig");
 
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
@@ -74,7 +74,15 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
     var frame_index: u32 = 0;
 
     main_loop: while (true) {
+        const frame_scope = tracy.traceNamed(@src(), "Frame");
+        defer frame_scope.end();
+
+        tracy.frameMark();
+
         while (!gb.has_frame_to_consume) {
+            const poll_scope = tracy.traceNamed(@src(), "SDL Poll Event");
+            defer poll_scope.end();
+
             // Poll events
             var sdlEvent: c.SDL_Event = undefined;
             while (c.SDL_PollEvent(&sdlEvent) > 0) {
@@ -106,9 +114,10 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
                 }
             }
 
-            tracy.frameMark();
-
-            try execution.step(gb);
+            // If we check for input too often the performance will degrade
+            for (0..512) |_| {
+                try execution.step(gb);
+            }
         }
 
         gb.has_frame_to_consume = false;
@@ -139,6 +148,9 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
 
         _ = c.SDL_UpdateTexture(texture, null, @ptrCast(backbuffer.ptr), lcd.ScreenWidth * 4);
         _ = c.SDL_RenderCopy(sdl_context.renderer, texture, null, null);
+
+        const present_scope = tracy.traceNamed(@src(), "SDL Wait for present");
+        defer present_scope.end();
 
         c.SDL_RenderPresent(sdl_context.renderer);
 

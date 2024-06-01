@@ -2,6 +2,8 @@ const std = @import("std");
 const cpu = @import("cpu.zig");
 const assert = std.debug.assert;
 
+const tracy = @import("../tracy.zig");
+
 pub const ScreenWidth = 160;
 pub const ScreenHeight = 144;
 // FIXME Pixel is the same as a dot or not?
@@ -154,6 +156,9 @@ fn eval_palette_raw(palette: u8, color_id: u2) u2 {
 }
 
 pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
+    const scope = tracy.trace(@src());
+    defer scope.end();
+
     const io_lcd = &gb.mmio.lcd;
     var cycles_remaining = cycle_count;
 
