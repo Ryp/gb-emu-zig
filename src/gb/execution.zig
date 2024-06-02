@@ -38,36 +38,31 @@ pub fn step(gb: *GBState) !void {
         }
 
         execute_interrupt(gb, interrupt_jump_address);
+
+        gb.is_halted = false;
     }
 
-    // Execute instructions
-    const current_instruction = try instructions.decode(gb.memory[gb.registers.pc..]);
+    if (gb.is_halted) {
+        spend_cycles(gb, 4); // FIXME
+    } else {
+        // Execute instructions
+        const current_instruction = try instructions.decode_inc_pc(gb);
 
-    if (enable_debug) {
-        print_register_debug(gb.registers);
-        std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
-        std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
+        if (enable_debug) {
+            print_register_debug(gb.registers);
+            std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
+            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
 
-        const i_mem = gb.memory[gb.registers.pc .. gb.registers.pc + current_instruction.byte_len];
-        std.debug.print(" | {b:0>8} {x:0>2} ", .{ i_mem, i_mem });
+            instructions.debug_print(current_instruction);
+        }
 
-        instructions.debug_print(current_instruction);
+        execute_instruction(gb, current_instruction);
     }
 
-    // Normally this would take some cycles to complete, but we take this into account
-    // a tiny bit later.
-    gb.registers.pc += current_instruction.byte_len;
-
-    execute_instruction(gb, current_instruction);
-
-    // FIXME assert(gb.registers.pc < 0x8000 or gb.registers.pc > 0xff80);
+    assert(is_valid_pc(gb.registers.pc));
     // FIXME assert(gb.registers.sp >= 0x8000);
-    assert(gb.registers.flags._unused == 0);
 
-    // We're decoding all instructions fully before executing them.
-    // Each byte read actually makes the CPU spin another 4 cycles, so we can just
-    // add them here after the fact
-    gb.pending_t_cycles += @as(u8, current_instruction.byte_len) * 4;
+    assert(gb.registers.flags._unused == 0);
 
     consume_pending_cycles(gb);
 }
@@ -78,8 +73,13 @@ fn consume_pending_cycles(gb: *GBState) void {
     gb.total_t_cycles += gb.pending_t_cycles;
 
     if (gb.pending_t_cycles > 0) {
-        step_dma(gb, gb.pending_t_cycles);
-        lcd.step_ppu(gb, gb.pending_t_cycles);
+        if (gb.dma_active) {
+            step_dma(gb, gb.pending_t_cycles);
+        }
+
+        if (gb.mmio.lcd.LCDC.enable_lcd_and_ppu) {
+            lcd.step_ppu(gb, gb.pending_t_cycles);
+        }
 
         gb.mmio.DIV = @truncate(gb.total_t_cycles / (cpu.TClockPeriod / cpu.DIVClockPeriod));
     }
@@ -91,23 +91,17 @@ fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
 
-    if (!gb.dma_active) {
-        return;
-    }
-
-    // Compute copy regions
     const dma_src_address = @as(u16, gb.mmio.lcd.DMA) << 8;
-    const src = gb.memory[dma_src_address .. dma_src_address + cpu.DMACopyByteCount];
-    const dst: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
-
-    assert(src.len == dst.len);
+    const oam_sprites_mem: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
 
     // Copy 1 byte per M-cycle
     const byte_count_to_copy_max = cycle_count / 4;
     const copy_offset_begin = gb.dma_current_offset;
     const copy_offset_end = @min(gb.dma_current_offset + byte_count_to_copy_max, cpu.DMACopyByteCount);
 
-    std.mem.copyForwards(u8, dst[copy_offset_begin..copy_offset_end], src[copy_offset_begin..copy_offset_end]);
+    for (copy_offset_begin..copy_offset_end) |offset| {
+        oam_sprites_mem[offset] = load_memory_u8(gb, dma_src_address + @as(u16, @intCast(offset)));
+    }
 
     // Update state
     gb.dma_current_offset = copy_offset_end;
@@ -129,6 +123,21 @@ fn print_register_debug(registers: Registers) void {
     std.debug.print(" B {x:0>2} C {x:0>2}", .{ registers.b, registers.c });
     std.debug.print(" D {x:0>2} E {x:0>2}", .{ registers.d, registers.e });
     std.debug.print(" H {x:0>2} L {x:0>2}", .{ registers.h, registers.l });
+}
+
+fn is_valid_pc(pc: u16) bool {
+    return switch (pc) {
+        0x0000...0x7fff => true, // ROM
+        0x8000...0x9fff => false, // VRAM
+        0xa000...0xbfff => true, // External RAM
+        0xc000...0xcfff => true, // RAM
+        0xd000...0xdfff => true, // RAM (Banked on CGB)
+        0xe000...0xfdff => false, // Echo RAMBANK
+        0xfe00...0xfe9f => false, // OAM RAM
+        0xfea0...0xfeff => false, // Nothing
+        0xff00...0xff7f, 0xffff => false, // MMIO
+        0xff80...0xfffe => true, // HRAM
+    };
 }
 
 pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
@@ -418,8 +427,9 @@ fn execute_ld_r8_r8(gb: *GBState, instruction: instructions.ld_r8_r8) void {
 }
 
 fn execute_halt(gb: *GBState) void {
-    _ = gb;
-    unreachable;
+    assert(gb.enable_interrupts_master);
+
+    gb.is_halted = true;
 }
 
 fn execute_add_a(gb: *GBState, value: u8) void {
@@ -861,13 +871,13 @@ fn execute_invalid_instruction(gb: *GBState) void {
     unreachable;
 }
 
-fn load_memory_u8(gb: *GBState, address: u16) u8 {
+pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
     spend_cycles(gb, 4);
 
     switch (address) {
-        0x0000...0x7fff => {
+        0x0000...0x7fff => { // ROM
             assert(!gb.dma_active);
-            return gb.memory[address];
+            return load_rom_u8(gb, @truncate(address)); // FIXME the switch prong should give us a u15 capture ideally
         },
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
@@ -917,10 +927,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
     switch (address) {
         0x0000...0x7fff => { // ROM
             assert(!gb.dma_active);
-            // Avoid writing here
-            // Unfortunately it's common for official games to do, so avoid asserting for now.
-            // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
-            assert(address == 0x2000);
+            store_rom_u8(gb, @truncate(address), value); // FIXME the switch prong should give us a u15 capture ideally
         }, // We can't write into the ROM
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
@@ -977,7 +984,44 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
     }
 }
 
-fn load_memory_u16(gb: *GBState, address: u16) u16 {
+fn load_rom_u8(gb: *GBState, address: u15) u8 {
+    switch (address) {
+        0x0000...0x3fff => { // ROM bank 0
+            return gb.rom[address];
+        },
+        0x4000...0x7fff => { // ROM bank X
+            switch (gb.cart_properties.mbc_type) {
+                .None => {
+                    return gb.rom[address];
+                },
+                .MBC1 => {
+                    const banked_address = @as(u32, address) + @as(u32, gb.cart_current_rom_bank - 1) * 0x4000; // FIXME
+                    return gb.rom[banked_address];
+                },
+            }
+        },
+    }
+}
+
+fn store_rom_u8(gb: *GBState, address: u15, value: u8) void {
+    // Avoid writing here
+    // Unfortunately it's common for official games to do, so avoid asserting for now.
+    // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
+    // assert(address == 0x2000 or address == 0x00c3);
+    switch (gb.cart_properties.mbc_type) {
+        .None => {},
+        .MBC1 => switch (address) {
+            0x0000...0x1fff => {},
+            0x2000...0x3fff => { // Write ROM Bank number
+                const bank_number: u5 = @truncate(@max(value, 1));
+                gb.cart_current_rom_bank = bank_number;
+            },
+            0x4000...0x7fff => {},
+        },
+    }
+}
+
+pub fn load_memory_u16(gb: *GBState, address: u16) u16 {
     const l = load_memory_u8(gb, address);
     const h = load_memory_u8(gb, address + 1);
 

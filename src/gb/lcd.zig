@@ -162,10 +162,6 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
     const io_lcd = &gb.mmio.lcd;
     var cycles_remaining = cycle_count;
 
-    if (!io_lcd.LCDC.enable_lcd_and_ppu) {
-        return;
-    }
-
     while (cycles_remaining > 0) {
         // Update PPU Mode and get current interrupt line state
         var interrupt_line = false;

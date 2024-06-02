@@ -2,15 +2,20 @@ const std = @import("std");
 const assert = std.debug.assert;
 const gb_endian = std.builtin.Endian.little;
 
-pub fn decode(mem: []const u8) !Instruction {
-    const b0 = mem[0];
+const cpu = @import("cpu.zig");
+const GBState = cpu.GBState;
+
+const execution = @import("execution.zig");
+
+pub fn decode_inc_pc(gb: *GBState) !Instruction {
+    const b0 = instruction_load_u8_inc_pc(gb);
 
     if (b0 == 0b0000_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .nop = undefined } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0001) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_r16_imm16 = .{
             .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0010) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_r16mem_a = .{
@@ -22,7 +27,7 @@ pub fn decode(mem: []const u8) !Instruction {
         } } };
     } else if (b0 == 0b0000_1000) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_sp = .{
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0011) {
         return Instruction{ .byte_len = 1, .encoding = .{ .inc_r16 = .{
@@ -47,7 +52,7 @@ pub fn decode(mem: []const u8) !Instruction {
     } else if ((b0 & 0b1100_0111) == 0b0000_0110) {
         return Instruction{ .byte_len = 2, .encoding = .{ .ld_r8_imm8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
-            .imm8 = mem[1],
+            .imm8 = instruction_load_u8_inc_pc(gb),
         } } };
     } else if (b0 == 0b0000_0111) {
         return Instruction{ .byte_len = 1, .encoding = .{ .rlca = undefined } };
@@ -67,12 +72,12 @@ pub fn decode(mem: []const u8) !Instruction {
         return Instruction{ .byte_len = 1, .encoding = .{ .ccf = undefined } };
     } else if (b0 == 0b0001_1000) {
         return Instruction{ .byte_len = 2, .encoding = .{ .jr_imm8 = .{
-            .offset = @bitCast(mem[1]),
+            .offset = @bitCast(instruction_load_u8_inc_pc(gb)),
         } } };
     } else if ((b0 & 0b1110_0111) == 0b0010_0000) {
         return Instruction{ .byte_len = 2, .encoding = .{ .jr_cond_imm8 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
-            .offset = @bitCast(mem[1]),
+            .offset = @bitCast(instruction_load_u8_inc_pc(gb)),
         } } };
     } else if (b0 == 0b0001_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .stop = undefined } }; // FIXME stuff about stop being 2 instructions
@@ -116,21 +121,21 @@ pub fn decode(mem: []const u8) !Instruction {
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
         } } };
     } else if (b0 == 0b1100_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .add_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .add_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1100_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .adc_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .adc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1101_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .sub_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .sub_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1101_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .sbc_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .sbc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1110_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .and_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .and_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1110_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .xor_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .xor_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1111_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .or_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .or_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1111_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .cp_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .cp_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0000) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ret_cond = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
@@ -142,22 +147,22 @@ pub fn decode(mem: []const u8) !Instruction {
     } else if ((b0 & 0b1110_0111) == 0b1100_0010) {
         return Instruction{ .byte_len = 3, .encoding = .{ .jp_cond_imm16 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if (b0 == 0b1100_0011) {
         return Instruction{ .byte_len = 3, .encoding = .{ .jp_imm16 = .{
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if (b0 == 0b1110_1001) {
         return Instruction{ .byte_len = 1, .encoding = .{ .jp_hl = undefined } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0100) {
         return Instruction{ .byte_len = 3, .encoding = .{ .call_cond_imm16 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if (b0 == 0b1100_1101) {
         return Instruction{ .byte_len = 3, .encoding = .{ .call_imm16 = .{
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if ((b0 & 0b1100_0111) == 0b1100_0111) {
         return Instruction{ .byte_len = 1, .encoding = .{ .rst_tgt3 = .{
@@ -172,7 +177,7 @@ pub fn decode(mem: []const u8) !Instruction {
             .r16stk = decode_r16stk(read_bits_from_byte(u2, b0, 4)),
         } } };
     } else if (b0 == 0b1100_1011) { // 0xCB prefix opcodes
-        const b1 = mem[1];
+        const b1 = instruction_load_u8_inc_pc(gb);
         const masked_b1_a = b1 & 0b1111_1000;
         const masked_b1_b = b1 & 0b1100_0000;
 
@@ -227,23 +232,23 @@ pub fn decode(mem: []const u8) !Instruction {
     } else if (b0 == 0b1110_0010) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ldh_c_a = undefined } };
     } else if (b0 == 0b1110_0000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_imm8_a = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_imm8_a = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1110_1010) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_a = .{
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if (b0 == 0b1111_0010) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ldh_a_c = undefined } };
     } else if (b0 == 0b1111_0000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_a_imm8 = .{ .imm8 = mem[1] } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
     } else if (b0 == 0b1111_1010) {
         return Instruction{ .byte_len = 3, .encoding = .{ .ld_a_imm16 = .{
-            .imm16 = std.mem.readVarInt(u16, mem[1..3], gb_endian),
+            .imm16 = instruction_load_u16_inc_pc(gb),
         } } };
     } else if (b0 == 0b1110_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .add_sp_imm8 = .{ .offset = @bitCast(mem[1]) } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .add_sp_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } } };
     } else if (b0 == 0b1111_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ld_hl_sp_plus_imm8 = .{ .offset = @bitCast(mem[1]) } } };
+        return Instruction{ .byte_len = 2, .encoding = .{ .ld_hl_sp_plus_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } } };
     } else if (b0 == 0b1111_1001) {
         return Instruction{ .byte_len = 1, .encoding = .{ .ld_sp_hl = undefined } };
     } else if (b0 == 0b1111_0011) {
@@ -259,6 +264,22 @@ pub fn decode(mem: []const u8) !Instruction {
     }
 
     return error.UnknownInstruction;
+}
+
+fn instruction_load_u8_inc_pc(gb: *GBState) u8 {
+    const byte = execution.load_memory_u8(gb, gb.registers.pc);
+
+    gb.registers.pc += 1;
+
+    return byte;
+}
+
+fn instruction_load_u16_inc_pc(gb: *GBState) u16 {
+    const value = execution.load_memory_u16(gb, gb.registers.pc);
+
+    gb.registers.pc += 2;
+
+    return value;
 }
 
 // Read sub-u8 type from u8 value and bit offset

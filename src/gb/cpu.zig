@@ -3,9 +3,14 @@ const std = @import("std");
 const lcd = @import("lcd.zig");
 const sound = @import("sound.zig");
 const joypad = @import("joypad.zig");
+const cart = @import("cart.zig");
 
 pub const GBState = struct {
     registers: Registers,
+    rom: []const u8, // Borrowed from create_state
+    cart_properties: cart.CardridgeProperties, // Should get const?
+    cart_current_rom_bank: u8 = 1,
+    cart_current_ram_bank: u8 = 0,
     memory: []u8,
     mmio: *MMIO,
     enable_interrupts_master: bool, // IME
@@ -20,24 +25,35 @@ pub const GBState = struct {
     active_sprite_indices: [lcd.LineMaxActiveSprites]u8,
     active_sprite_count: u8,
 
-    dma_active: bool,
-    dma_current_offset: u8,
+    dma_active: bool = false,
+    dma_current_offset: u8 = 0,
 
     keys: joypad.Keys,
 
+    is_halted: bool = false, // FIXME
     pending_t_cycles: u8, // How much the CPU is in advance over other components
     total_t_cycles: u64,
 };
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
+    const cart_header = cart.extract_header_from_rom(cart_rom_bytes);
+    const cart_properties = cart.get_cart_properties(cart_header.cart_type);
+
+    std.debug.assert(cart_properties.has_battery == false);
+    std.debug.assert(cart_properties.has_ram == false);
+    std.debug.assert(cart_properties.mbc_type == .None or cart_properties.mbc_type == .MBC1);
+
+    if (cart_properties.mbc_type == .None) {
+        std.debug.assert(cart_rom_bytes.len == 32 * 1024);
+    } else if (cart_properties.mbc_type == .MBC1) {
+        std.debug.assert(cart_rom_bytes.len == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
+    }
+
     const memory = try allocator.alloc(u8, 256 * 256); // FIXME
     errdefer allocator.free(memory);
 
     const screen_output = try allocator.alloc(u8, lcd.ScreenSizeBytes);
     errdefer allocator.free(screen_output);
-
-    // FIXME This only works with the smallest ROMs
-    std.mem.copyForwards(u8, memory, cart_rom_bytes);
 
     const mmio_memory = memory[0xFF00..];
     const mmio: *MMIO = @ptrCast(@alignCast(mmio_memory)); // FIXME remove alignCast!
@@ -91,6 +107,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .sp = 0xFFFE,
             .pc = 0x0100,
         }),
+        .rom = cart_rom_bytes,
+        .cart_properties = cart_properties,
         .memory = memory,
         .mmio = mmio,
         .enable_interrupts_master = false,
@@ -102,8 +120,6 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .has_frame_to_consume = false,
         .active_sprite_indices = undefined,
         .active_sprite_count = 0,
-        .dma_active = false,
-        .dma_current_offset = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .pending_t_cycles = 0,
         .total_t_cycles = 0,

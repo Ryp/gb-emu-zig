@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const cpu = @import("gb/cpu.zig");
-const lcd = @import("gb/lcd.zig");
+const cart = @import("gb/cart.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 
@@ -33,11 +33,10 @@ pub fn main() !void {
     };
     defer file.close();
 
-    // FIXME I don't support ROMs with swappable address space
-    var buffer: [256 * 128]u8 = undefined; // FIXME
-    const rom_bytes = try file.read(buffer[0..buffer.len]);
+    var rom_buffer: [cart.MaxROMByteSize]u8 = undefined;
+    const rom_bytes_read = try file.read(&rom_buffer);
 
-    var gb = try cpu.create_state(allocator, buffer[0..rom_bytes]);
+    var gb = try cpu.create_state(allocator, rom_buffer[0..rom_bytes_read]);
     defer cpu.destroy_state(allocator, &gb);
 
     try sdl2_frontend.execute_main_loop(allocator, &gb);

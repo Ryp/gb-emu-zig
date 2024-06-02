@@ -50,35 +50,3 @@ test {
 
     try expectEqual(51, gb.registers.a);
 }
-
-test {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-
-    const allocator = gpa.allocator();
-
-    const rom_bytes = [2]u8{ 3, 3 };
-
-    var gb = try cpu.create_state(allocator, &rom_bytes);
-    defer cpu.destroy_state(allocator, &gb);
-
-    for (0..256) |op_code| {
-        const instruction_bytes = [3]u8{ @intCast(op_code), 0xff, 0xff };
-
-        const instruction = try instructions.decode(&instruction_bytes);
-
-        std.debug.print("{x:0>2} {b:0>8} ", .{ op_code, op_code });
-
-        instructions.debug_print(instruction);
-    }
-
-    for (0..256) |op_code| {
-        const instruction_bytes = [3]u8{ 0xcb, @intCast(op_code), 0xff };
-
-        const instruction = try instructions.decode(&instruction_bytes);
-
-        std.debug.print("{x:0>2} {b:0>8} ", .{ op_code, op_code });
-
-        instructions.debug_print(instruction);
-    }
-}
