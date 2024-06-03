@@ -330,7 +330,8 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
 }
 
 fn get_tile_data(tile_data: []u8, tile_index: u12) []u8 {
-    return tile_data[tile_index * 16 .. tile_index * 16 + 16];
+    const index: u32 = tile_index;
+    return tile_data[index * 16 .. index * 16 + 16];
 }
 
 // FIMXE
