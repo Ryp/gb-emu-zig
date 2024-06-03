@@ -102,8 +102,8 @@ pub const Sprite = packed struct {
         cgb_palette: u3, // CGB palette [CGB Mode Only]: Which of OBP0–7 to use
         bank: u1, // Bank [CGB Mode Only]: 0 = Fetch tile from VRAM bank 0, 1 = Fetch tile from VRAM bank 1
         dmg_palette: u1, // DMG palette [Non CGB Mode only]: 0 = OBP0, 1 = OBP1
-        flip_x: u1, // X flip: 0 = Normal, 1 = Entire OBJ is horizontally mirrored
-        flip_y: u1, // Y flip: 0 = Normal, 1 = Entire OBJ is vertically mirrored
+        flip_x: bool, // X flip: 0 = Normal, 1 = Entire OBJ is horizontally mirrored
+        flip_y: bool, // Y flip: 0 = Normal, 1 = Entire OBJ is vertically mirrored
         priority: u1, // Priority: 0 = No, 1 = BG and Window colors 1–3 are drawn over this OBJ
     },
 };
@@ -302,8 +302,6 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
     }
 
     if (io_ppu.LCDC.obj_enable) {
-        assert(gb.mmio.ppu.LCDC.obj_size_mode == .Sprite8x8); // FIXME that's all we handle ATM
-
         // NOTE: sprites position_x and screen_x start at an offset of 16 pixels
         const sprites_extent = get_sprites_extent(gb);
 
@@ -314,11 +312,13 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
             const is_sprite_visible = all(pixel_coord_sprite >= u8_2{ 0, 0 }) and all(pixel_coord_sprite < sprites_extent);
 
             if (is_sprite_visible) {
-                const tile_data = get_tile_data(tile_data_sprites, sprite.tile_index);
+                const sprite_tile_info = get_sprite_tile_info(sprite, sprites_extent, pixel_coord_sprite);
+                const tile_data = get_tile_data(tile_data_sprites, sprite_tile_info.tile_index);
+
+                const color_id = read_tile_pixel(tile_data, sprite_tile_info.pixel_x, sprite_tile_info.pixel_y);
 
                 // FIXME This is completely wrong but works for very simple cases
-                const color_id = read_tile_pixel(tile_data, @intCast(pixel_coord_sprite[0]), @intCast(pixel_coord_sprite[1] % 8));
-                pixel_color = eval_palette(io_lcd.BGP, color_id);
+                pixel_color = eval_palette(io_ppu.BGP, color_id);
             }
         }
     }
@@ -332,7 +332,43 @@ fn get_tile_data(tile_data: []u8, tile_index: u12) []u8 {
     return tile_data[index * 16 .. index * 16 + 16];
 }
 
-// FIMXE
+const SpriteTileInfo = struct {
+    pixel_x: u3,
+    pixel_y: u3,
+    tile_index: u8,
+};
+
+fn get_sprite_tile_info(sprite: Sprite, sprites_extent: u8_2, pixel_coord: u8_2) SpriteTileInfo {
+    var pixel_x: u3 = @intCast(pixel_coord[0]);
+    var pixel_y: u4 = @intCast(pixel_coord[1]);
+
+    if (sprite.attributes.flip_x) {
+        pixel_x = @intCast(sprites_extent[0] - 1 - pixel_x);
+    }
+
+    if (sprite.attributes.flip_y) {
+        pixel_y = @intCast(sprites_extent[1] - 1 - pixel_y);
+    }
+
+    var tile_index = sprite.tile_index;
+
+    // Special tile selection when we're using tall sprites
+    if (sprites_extent[1] == 16) {
+        if (pixel_y >= 8) {
+            tile_index &= 0xFE;
+        } else {
+            tile_index |= 0x01;
+        }
+    }
+
+    return SpriteTileInfo{
+        .pixel_x = pixel_x,
+        .pixel_y = @truncate(pixel_y),
+        .tile_index = tile_index,
+    };
+}
+
+// FIXME
 pub fn all(vector: anytype) bool {
     const type_info = @typeInfo(@TypeOf(vector));
     assert(type_info.Vector.child == bool);
