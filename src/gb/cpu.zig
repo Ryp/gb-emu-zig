@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const lcd = @import("lcd.zig");
+const ppu = @import("ppu.zig");
 const sound = @import("sound.zig");
 const joypad = @import("joypad.zig");
 const cart = @import("cart.zig");
@@ -15,14 +15,14 @@ pub const GBState = struct {
     mmio: *MMIO,
     enable_interrupts_master: bool, // IME
     vram: []u8,
-    oam_sprites: [lcd.OAMSpriteCount]lcd.Sprite,
+    oam_sprites: [ppu.OAMSpriteCount]ppu.Sprite,
 
     // PPU internal state
     screen_output: []u8,
     ppu_h_cycles: u16, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
     has_frame_to_consume: bool, // Tell the frontend to consume screen_output
-    active_sprite_indices: [lcd.LineMaxActiveSprites]u8,
+    active_sprite_indices: [ppu.LineMaxActiveSprites]u8,
     active_sprite_count: u8,
 
     dma_active: bool = false,
@@ -52,12 +52,12 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     const memory = try allocator.alloc(u8, 256 * 256); // FIXME
     errdefer allocator.free(memory);
 
-    const screen_output = try allocator.alloc(u8, lcd.ScreenSizeBytes);
+    const screen_output = try allocator.alloc(u8, ppu.ScreenSizeBytes);
     errdefer allocator.free(screen_output);
 
     const mmio_memory = memory[0xFF00..];
     const mmio: *MMIO = @ptrCast(@alignCast(mmio_memory)); // FIXME remove alignCast!
-    const vram = memory[lcd.VRAMBeginOffset..lcd.VRAMEndOffset];
+    const vram = memory[ppu.VRAMBeginOffset..ppu.VRAMEndOffset];
 
     // See this page for the initial state of the io registers:
     // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
@@ -94,7 +94,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     mmio_memory[0xFF] = 0x00;
 
     // FIXME
-    mmio.lcd.LY = 0;
+    mmio.ppu.LY = 0;
     mmio.JOYP.input_selector = .both;
     mmio.JOYP._unused = 0b11;
 
@@ -221,7 +221,7 @@ pub const MMIO = packed struct {
         _unused: u3,
     },
     sound: sound.Sound_MMIO,
-    lcd: lcd.LCD_MMIO,
+    ppu: ppu.MMIO,
     BANK: u8, //= 0x50, // Write to disable the boot ROM mapping
     HDMA1: u8, //= 0x51, // CGB Mode Only - New DMA Source, High
     HDMA2: u8, //= 0x52, // CGB Mode Only - New DMA Source, Low
@@ -384,7 +384,7 @@ pub const MMIO_Offset = enum(u8) {
 
 comptime {
     std.debug.assert(@offsetOf(MMIO, "sound") == 0x10);
-    std.debug.assert(@offsetOf(MMIO, "lcd") == 0x40);
+    std.debug.assert(@offsetOf(MMIO, "ppu") == 0x40);
     std.debug.assert(@offsetOf(MMIO, "PCM34") == 0x77);
     std.debug.assert(@sizeOf(MMIO) == 256);
 }

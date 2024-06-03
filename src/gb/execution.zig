@@ -11,7 +11,7 @@ const instructions = @import("instructions.zig");
 const R8 = instructions.R8;
 const R16 = instructions.R16;
 
-const lcd = @import("lcd.zig");
+const ppu = @import("ppu.zig");
 const joypad = @import("joypad.zig");
 
 const enable_debug = false;
@@ -51,7 +51,7 @@ pub fn step(gb: *GBState) !void {
         if (enable_debug) {
             print_register_debug(gb.registers);
             std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
-            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.lcd.STAT)) });
+            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
 
             instructions.debug_print(current_instruction);
         }
@@ -77,8 +77,8 @@ fn consume_pending_cycles(gb: *GBState) void {
             step_dma(gb, gb.pending_t_cycles);
         }
 
-        if (gb.mmio.lcd.LCDC.enable_lcd_and_ppu) {
-            lcd.step_ppu(gb, gb.pending_t_cycles);
+        if (gb.mmio.ppu.LCDC.enable_lcd_and_ppu) {
+            ppu.step_ppu(gb, gb.pending_t_cycles);
         }
 
         gb.mmio.DIV = @truncate(gb.total_t_cycles / (cpu.TClockPeriod / cpu.DIVClockPeriod));
@@ -91,8 +91,8 @@ fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
 
-    const dma_src_address = @as(u16, gb.mmio.lcd.DMA) << 8;
-    const oam_sprites_mem: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+    const dma_src_address = @as(u16, gb.mmio.ppu.DMA) << 8;
+    const oam_sprites_mem: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
 
     // Copy 1 byte per M-cycle
     const byte_count_to_copy_max = cycle_count / 4;
@@ -882,8 +882,8 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
             // is only readable when the PPU is not drawing
-            const is_ppu_drawing = gb.mmio.lcd.STAT.ppu_mode == .Drawing;
-            const lcd_was_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+            const is_ppu_drawing = gb.mmio.ppu.STAT.ppu_mode == .Drawing;
+            const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
             assert(!is_ppu_drawing or !lcd_was_on);
             if (is_ppu_drawing) {
                 return 0xff;
@@ -897,11 +897,11 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0xe000...0xfdff => unreachable, // Echo RAMBANK
         0xfe00...0xfe9f => { // OAMRAM
             assert(!gb.dma_active);
-            assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
-            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            assert(gb.mmio.ppu.STAT.ppu_mode != .ScanOAM);
+            assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
 
             const offset: u8 = @truncate(address);
-            const oam_memory: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+            const oam_memory: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
 
             return oam_memory[offset];
         },
@@ -932,7 +932,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
             // is only writable when the PPU is not drawing
-            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
             gb.vram[address - 0x8000] = value;
         },
         0xa000...0xbfff => gb.memory[address] = value, // External RAM
@@ -941,11 +941,11 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         0xe000...0xfdff => {}, // FIXME Echo RAMBANK
         0xfe00...0xfe9f => { // OAMRAM
             assert(!gb.dma_active);
-            assert(gb.mmio.lcd.STAT.ppu_mode != .ScanOAM);
-            assert(gb.mmio.lcd.STAT.ppu_mode != .Drawing);
+            assert(gb.mmio.ppu.STAT.ppu_mode != .ScanOAM);
+            assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
 
             const offset: u8 = @truncate(address);
-            const oam_memory: *[lcd.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+            const oam_memory: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
 
             oam_memory[offset] = value;
         },
@@ -959,20 +959,20 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 // We could probably just write the full byte and not worry
                 .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
                 .LCDC => {
-                    const lcd_was_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+                    const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
                     mmio_bytes[offset] = value;
-                    const lcd_is_on = gb.mmio.lcd.LCDC.enable_lcd_and_ppu;
+                    const lcd_is_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
 
                     // Only turn off during VBlank!
                     if (lcd_was_on and !lcd_is_on) {
-                        assert(gb.mmio.lcd.STAT.ppu_mode == .VBlank);
+                        assert(gb.mmio.ppu.STAT.ppu_mode == .VBlank);
                     } else if (!lcd_was_on and lcd_is_on) {
-                        lcd.reset_ppu(gb);
+                        ppu.reset_ppu(gb);
                     }
                 },
                 .DMA => {
                     assert(value <= 0xdf);
-                    gb.mmio.lcd.DMA = value;
+                    gb.mmio.ppu.DMA = value;
 
                     gb.dma_active = true;
                     gb.dma_current_offset = 0;

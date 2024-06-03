@@ -5,7 +5,7 @@ const tracy = @import("tracy.zig");
 
 const cpu = @import("gb/cpu.zig");
 const execution = @import("gb/execution.zig");
-const lcd = @import("gb/lcd.zig");
+const ppu = @import("gb/ppu.zig");
 
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
@@ -27,8 +27,8 @@ fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
     }
     errdefer c.SDL_Quit();
 
-    const window_width = lcd.ScreenWidth;
-    const window_height = lcd.ScreenHeight;
+    const window_width = ppu.ScreenWidth;
+    const window_height = ppu.ScreenHeight;
 
     const window = c.SDL_CreateWindow("Gameboy Emu", c.SDL_WINDOWPOS_UNDEFINED, c.SDL_WINDOWPOS_UNDEFINED, @intCast(window_width), @intCast(window_height), c.SDL_WINDOW_SHOWN) orelse {
         c.SDL_Log("Unable to create window: %s", c.SDL_GetError());
@@ -68,7 +68,7 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
     const title_string = try allocator.alloc(u8, 1024);
     defer allocator.free(title_string);
 
-    const backbuffer = try allocator.alloc(u32, lcd.ScreenWidth * lcd.ScreenHeight);
+    const backbuffer = try allocator.alloc(u32, ppu.ScreenWidth * ppu.ScreenHeight);
     defer allocator.free(backbuffer);
 
     var frame_index: u32 = 0;
@@ -143,10 +143,10 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
             };
         }
 
-        const texture = c.SDL_CreateTexture(sdl_context.renderer, c.SDL_PIXELFORMAT_ARGB8888, c.SDL_TEXTUREACCESS_STATIC, lcd.ScreenWidth, lcd.ScreenHeight);
+        const texture = c.SDL_CreateTexture(sdl_context.renderer, c.SDL_PIXELFORMAT_ARGB8888, c.SDL_TEXTUREACCESS_STATIC, ppu.ScreenWidth, ppu.ScreenHeight);
         defer c.SDL_DestroyTexture(texture);
 
-        _ = c.SDL_UpdateTexture(texture, null, @ptrCast(backbuffer.ptr), lcd.ScreenWidth * 4);
+        _ = c.SDL_UpdateTexture(texture, null, @ptrCast(backbuffer.ptr), ppu.ScreenWidth * 4);
         _ = c.SDL_RenderCopy(sdl_context.renderer, texture, null, null);
 
         const present_scope = tracy.traceNamed(@src(), "SDL Wait for present");

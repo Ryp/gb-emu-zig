@@ -33,7 +33,7 @@ comptime {
     assert(@sizeOf(Sprite) * OAMSpriteCount == OAMMemoryByteCount);
 }
 
-pub const LCD_MMIO = packed struct {
+pub const MMIO = packed struct {
     LCDC: packed struct { //= 0x40, // LCD Control (R/W)
         enable_bg_and_window: bool, // BG & Window enable / priority [Different meaning in CGB Mode]: 0 = Off; 1 = On
         obj_enable: bool, // OBJ enable: 0 = Off; 1 = On
@@ -109,14 +109,10 @@ pub const Sprite = packed struct {
 };
 
 comptime {
-    assert(@sizeOf(LCD_MMIO) == 16);
+    assert(@sizeOf(MMIO) == 16);
     assert(@sizeOf(Palette) == 1);
     assert(@sizeOf(Sprite) == 4);
     assert(@sizeOf(PositionTileLocal) == 2);
-}
-
-fn get_current_src_dot_offset(io_lcd: LCD_MMIO) u16 {
-    return io_lcd.WY; // FIXME
 }
 
 // NOTE: Lets us do index math without messing with bit ops directly
@@ -159,39 +155,39 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
 
-    const io_lcd = &gb.mmio.lcd;
+    const io_ppu = &gb.mmio.ppu;
     var cycles_remaining = cycle_count;
 
     while (cycles_remaining > 0) {
         // Update PPU Mode and get current interrupt line state
         var interrupt_line = false;
-        const previous_ppu_mode = io_lcd.STAT.ppu_mode;
+        const previous_ppu_mode = io_ppu.STAT.ppu_mode;
 
-        if (io_lcd.LY < ScreenHeight) {
+        if (io_ppu.LY < ScreenHeight) {
             if (gb.ppu_h_cycles < OAMDurationCycles) {
-                interrupt_line = interrupt_line or io_lcd.STAT.enable_scan_oam_interrupt;
-                io_lcd.STAT.ppu_mode = .ScanOAM;
+                interrupt_line = interrupt_line or io_ppu.STAT.enable_scan_oam_interrupt;
+                io_ppu.STAT.ppu_mode = .ScanOAM;
             } else if (gb.ppu_h_cycles < OAMDurationCycles + DrawMinDurationCycles) {
                 // There's no interrupt line change for this mode
                 if (previous_ppu_mode != .Drawing) {
-                    io_lcd.STAT.ppu_mode = .Drawing;
-                    compute_active_sprites_for_line(gb, io_lcd.LY); // Computed during OAM on a real DMG
+                    io_ppu.STAT.ppu_mode = .Drawing;
+                    compute_active_sprites_for_line(gb, io_ppu.LY); // Computed during OAM on a real DMG
                 }
             } else {
-                interrupt_line = interrupt_line or io_lcd.STAT.enable_hblank_interrupt;
-                io_lcd.STAT.ppu_mode = .HBlank;
+                interrupt_line = interrupt_line or io_ppu.STAT.enable_hblank_interrupt;
+                io_ppu.STAT.ppu_mode = .HBlank;
             }
         } else {
-            interrupt_line = interrupt_line or io_lcd.STAT.enable_vblank_interrupt;
+            interrupt_line = interrupt_line or io_ppu.STAT.enable_vblank_interrupt;
 
             if (previous_ppu_mode != .VBlank) {
-                io_lcd.STAT.ppu_mode = .VBlank;
+                io_ppu.STAT.ppu_mode = .VBlank;
                 gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskVBlank;
             }
         }
 
-        io_lcd.STAT.lyc_equal_ly = io_lcd.LYC == io_lcd.LY;
-        interrupt_line = interrupt_line or (io_lcd.STAT.enable_lyc_interrupt and io_lcd.STAT.lyc_equal_ly);
+        io_ppu.STAT.lyc_equal_ly = io_ppu.LYC == io_ppu.LY;
+        interrupt_line = interrupt_line or (io_ppu.STAT.enable_lyc_interrupt and io_ppu.STAT.lyc_equal_ly);
 
         // Only request an interrupt when the interrupt line goes up
         if (!gb.last_stat_interrupt_line and interrupt_line) {
@@ -201,11 +197,11 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
         gb.last_stat_interrupt_line = interrupt_line;
 
         // Execute current mode
-        switch (io_lcd.STAT.ppu_mode) {
+        switch (io_ppu.STAT.ppu_mode) {
             .HBlank, .VBlank, .ScanOAM => {},
             .Drawing => {
                 const x = gb.ppu_h_cycles - OAMDurationCycles;
-                const y = io_lcd.LY;
+                const y = io_ppu.LY;
 
                 if (x < ScreenWidth) { // FIXME OBJs make relationship between cycles and horizontal position variable
                     draw_dot(gb, @intCast(x), y);
@@ -220,10 +216,10 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
         if (gb.ppu_h_cycles == ScanLineDurationCycles) {
             gb.ppu_h_cycles = 0;
 
-            io_lcd.LY += 1;
+            io_ppu.LY += 1;
 
-            if (io_lcd.LY == ScanLineCount) {
-                io_lcd.LY = 0;
+            if (io_ppu.LY == ScanLineCount) {
+                io_ppu.LY = 0;
 
                 gb.has_frame_to_consume = true;
             }
@@ -233,7 +229,7 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
 
 pub fn reset_ppu(gb: *cpu.GBState) void {
     // FIXME not sure this is strictly needed
-    gb.mmio.lcd.LY = 0;
+    gb.mmio.ppu.LY = 0;
     gb.ppu_h_cycles = 0;
 }
 
@@ -258,29 +254,29 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
     assert(screen_x < ScreenWidth);
     assert(screen_y < ScreenHeight);
 
-    const io_lcd = &gb.mmio.lcd;
+    const io_ppu = &gb.mmio.ppu;
 
     // Tile Data
     const vram_tile_data0 = gb.vram[0x0000..0x1000];
     const vram_tile_data1 = gb.vram[0x0800..0x1800];
-    const tile_data_bg = if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeUnsigned8000to8FFF) vram_tile_data0 else vram_tile_data1;
+    const tile_data_bg = if (io_ppu.LCDC.bg_and_window_tile_data_area == .ModeUnsigned8000to8FFF) vram_tile_data0 else vram_tile_data1;
     const tile_data_sprites = vram_tile_data0;
 
     // Tile Map
     const vram_tile_map0 = gb.vram[0x1800..0x1C00];
     const vram_tile_map1 = gb.vram[0x1C00..0x2000];
-    const tile_map_bg = if (io_lcd.LCDC.bg_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
-    const tile_map_win = if (io_lcd.LCDC.window_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
+    const tile_map_bg = if (io_ppu.LCDC.bg_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
+    const tile_map_win = if (io_ppu.LCDC.window_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
 
     _ = tile_map_win;
 
     // FIXME What's the default pixel value?
     var pixel_color: u2 = 0;
 
-    if (io_lcd.LCDC.enable_bg_and_window) {
+    if (io_ppu.LCDC.enable_bg_and_window) {
         const position_in_tile_map = PositionInTileMap{
-            .x = screen_x +% io_lcd.SCX,
-            .y = screen_y +% io_lcd.SCY,
+            .x = screen_x +% io_ppu.SCX,
+            .y = screen_y +% io_ppu.SCY,
         };
 
         const position_tile_local = position_tile_local_from_position_in_tile_map(position_in_tile_map);
@@ -289,7 +285,7 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
         var bg_tile_data_index = tile_map_bg[tile_map_index_flat];
 
         // FIXME make this more better
-        if (io_lcd.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
+        if (io_ppu.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
             if (bg_tile_data_index < 128) {
                 bg_tile_data_index += 128;
             } else {
@@ -300,12 +296,14 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
         const bg_tile_data = get_tile_data(tile_data_bg, bg_tile_data_index);
 
         const bg_color_id = read_tile_pixel(bg_tile_data, position_tile_local.pixel_x, position_tile_local.pixel_y);
-        pixel_color = eval_palette(io_lcd.BGP, bg_color_id);
+        pixel_color = eval_palette(io_ppu.BGP, bg_color_id);
 
-        if (io_lcd.LCDC.enable_window) {} // FIXME
+        if (io_ppu.LCDC.enable_window) {} // FIXME
     }
 
-    if (io_lcd.LCDC.obj_enable) {
+    if (io_ppu.LCDC.obj_enable) {
+        assert(gb.mmio.ppu.LCDC.obj_size_mode == .Sprite8x8); // FIXME that's all we handle ATM
+
         // NOTE: sprites position_x and screen_x start at an offset of 16 pixels
         const sprites_extent = get_sprites_extent(gb);
 
@@ -386,7 +384,7 @@ fn sprite_less_than(oam_sprites: [OAMSpriteCount]Sprite, a_index: u8, b_index: u
 }
 
 fn get_sprites_extent(gb: *cpu.GBState) u8_2 {
-    return switch (gb.mmio.lcd.LCDC.obj_size_mode) {
+    return switch (gb.mmio.ppu.LCDC.obj_size_mode) {
         .Sprite8x8 => .{ 8, 8 },
         .Sprite8x16 => .{ 8, 16 },
     };
