@@ -20,6 +20,7 @@ pub const GBState = struct {
     // PPU internal state
     screen_output: []u8,
     ppu_h_cycles: u16, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
+    internal_wy: u8 = 0,
     last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
     has_frame_to_consume: bool, // Tell the frontend to consume screen_output
     active_sprite_indices: [ppu.LineMaxActiveSprites]u8,
@@ -116,6 +117,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         .oam_sprites = undefined,
         .screen_output = screen_output,
         .ppu_h_cycles = 0,
+        .internal_wy = 0,
         .last_stat_interrupt_line = false,
         .has_frame_to_consume = false,
         .active_sprite_indices = undefined,

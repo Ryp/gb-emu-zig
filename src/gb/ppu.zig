@@ -216,10 +216,16 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
         if (gb.ppu_h_cycles == ScanLineDurationCycles) {
             gb.ppu_h_cycles = 0;
 
+            // FIXME
+            if (io_ppu.LCDC.enable_bg_and_window and io_ppu.LCDC.enable_window and io_ppu.LY >= io_ppu.WY and io_ppu.WX <= 166) {
+                gb.internal_wy += 1;
+            }
+
             io_ppu.LY += 1;
 
             if (io_ppu.LY == ScanLineCount) {
                 io_ppu.LY = 0;
+                gb.internal_wy = 0;
 
                 gb.has_frame_to_consume = true;
             }
@@ -231,6 +237,7 @@ pub fn reset_ppu(gb: *cpu.GBState) void {
     // FIXME not sure this is strictly needed
     gb.mmio.ppu.LY = 0;
     gb.ppu_h_cycles = 0;
+    gb.internal_wy = 0;
 }
 
 fn position_tile_local_from_position_in_tile_map(pixel_offset: PositionInTileMap) PositionTileLocal {
@@ -268,43 +275,46 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
     const tile_map_bg = if (io_ppu.LCDC.bg_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
     const tile_map_win = if (io_ppu.LCDC.window_tile_map_area == .Mode9800to9BFF) vram_tile_map0 else vram_tile_map1;
 
-    _ = tile_map_win;
-
     // FIXME What's the default pixel value?
     var pixel_color: u2 = 0;
 
     if (io_ppu.LCDC.enable_bg_and_window) {
-        const position_in_tile_map = PositionInTileMap{
+        const window_covers_bg = io_ppu.LCDC.enable_window and all(u8_2{ screen_x + 7, screen_y } >= u8_2{ io_ppu.WX, io_ppu.WY });
+
+        const tile_map = if (window_covers_bg) tile_map_win else tile_map_bg;
+        const position_tile_map = if (window_covers_bg) PositionInTileMap{
+            .x = screen_x + 7 - io_ppu.WX,
+            .y = gb.internal_wy,
+        } else PositionInTileMap{
             .x = screen_x +% io_ppu.SCX,
             .y = screen_y +% io_ppu.SCY,
         };
 
-        const position_tile_local = position_tile_local_from_position_in_tile_map(position_in_tile_map);
+        const position_tile_local = position_tile_local_from_position_in_tile_map(position_tile_map);
         const tile_map_index_flat = tile_map_index_flat_from_tile_local_position(position_tile_local);
 
-        var bg_tile_data_index = tile_map_bg[tile_map_index_flat];
+        var tile_data_index = tile_map[tile_map_index_flat];
 
         // FIXME make this more better
         if (io_ppu.LCDC.bg_and_window_tile_data_area == .ModeSigned8800to97FF) {
-            if (bg_tile_data_index < 128) {
-                bg_tile_data_index += 128;
+            if (tile_data_index < 128) {
+                tile_data_index += 128;
             } else {
-                bg_tile_data_index -= 128;
+                tile_data_index -= 128;
             }
         }
 
-        const bg_tile_data = get_tile_data(tile_data_bg, bg_tile_data_index);
+        const tile_data = get_tile_data(tile_data_bg, tile_data_index);
 
-        const bg_color_id = read_tile_pixel(bg_tile_data, position_tile_local.pixel_x, position_tile_local.pixel_y);
-        pixel_color = eval_palette(io_ppu.BGP, bg_color_id);
-
-        if (io_ppu.LCDC.enable_window) {} // FIXME
+        const color_id = read_tile_pixel(tile_data, position_tile_local.pixel_x, position_tile_local.pixel_y);
+        pixel_color = eval_palette(io_ppu.BGP, color_id);
     }
 
     if (io_ppu.LCDC.obj_enable) {
         // NOTE: sprites position_x and screen_x start at an offset of 16 pixels
         const sprites_extent = get_sprites_extent(gb);
 
+        // NOTE: Sprites are assumed to be sorted in order of decreasing priority
         for (gb.active_sprite_indices[0..gb.active_sprite_count]) |sprite_index| {
             const sprite = gb.oam_sprites[sprite_index];
             const pixel_coord_sprite = screen_coords_to_sprite_coords(sprite, .{ @intCast(screen_x), @intCast(screen_y) });
@@ -318,7 +328,14 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
                 const color_id = read_tile_pixel(tile_data, sprite_tile_info.pixel_x, sprite_tile_info.pixel_y);
 
                 // FIXME This is completely wrong but works for very simple cases
-                pixel_color = eval_palette(io_ppu.BGP, color_id);
+                const palette = if (sprite.attributes.dmg_palette == 0) io_ppu.OBP0 else io_ppu.OBP1;
+                const sprite_color = eval_palette(palette, color_id);
+
+                if (color_id != 0) // Transparent for OBJs
+                {
+                    pixel_color = sprite_color;
+                    break;
+                }
             }
         }
     }
@@ -354,7 +371,7 @@ fn get_sprite_tile_info(sprite: Sprite, sprites_extent: u8_2, pixel_coord: u8_2)
 
     // Special tile selection when we're using tall sprites
     if (sprites_extent[1] == 16) {
-        if (pixel_y >= 8) {
+        if (pixel_y < 8) {
             tile_index &= 0xFE;
         } else {
             tile_index |= 0x01;
@@ -411,12 +428,12 @@ fn compute_active_sprites_for_line(gb: *cpu.GBState, line_index: u32) void {
     std.sort.pdq(u8, gb.active_sprite_indices[0..gb.active_sprite_count], gb.oam_sprites, sprite_less_than);
 }
 
-// FIXME
+// Sort order to be in decreasing priority
 fn sprite_less_than(oam_sprites: [OAMSpriteCount]Sprite, a_index: u8, b_index: u8) bool {
     const a = oam_sprites[a_index];
     const b = oam_sprites[b_index];
 
-    return a.position_x < b.position_x;
+    return a.position_x > b.position_x;
 }
 
 fn get_sprites_extent(gb: *cpu.GBState) u8_2 {
