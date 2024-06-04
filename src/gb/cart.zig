@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const cpu = @import("cpu.zig");
+const GBState = cpu.GBState;
+
 pub const LogoSizeBytes = 48;
 pub const CartHeaderOffsetBytes = 0x100;
 pub const CartHeaderSizeBytes = 0x50;
@@ -209,3 +212,61 @@ pub const CardridgeType = enum(u8) {
     HuC3 = 0xFE,
     HuC1_RAM_BATTERY = 0xFF,
 };
+
+pub fn load_rom_u8(gb: *GBState, address: u15) u8 {
+    switch (address) {
+        0x0000...0x3fff => { // ROM bank 0
+            // FIXME handle boot ROM here
+            return gb.rom[address];
+        },
+        0x4000...0x7fff => { // ROM bank X
+            switch (gb.cart_properties.mbc_type) {
+                .None => {
+                    return gb.rom[address];
+                },
+                .MBC1 => {
+                    const banked_address = @as(u32, address) + @as(u32, gb.cart_current_rom_bank - 1) * 0x4000;
+                    return gb.rom[banked_address];
+                },
+                .MBC2 => {
+                    const banked_address = @as(u32, address) + @as(u32, gb.cart_current_rom_bank - 1) * 0x4000; // FIXME
+                    return gb.rom[banked_address];
+                },
+            }
+        },
+    }
+}
+
+pub fn store_rom_u8(gb: *GBState, address: u15, value: u8) void {
+    // Avoid writing here
+    // Unfortunately it's common for official games to do, so avoid asserting for now.
+    // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
+    // assert(address == 0x2000 or address == 0x00c3);
+    switch (gb.cart_properties.mbc_type) {
+        .None => {},
+        .MBC1 => switch (address) {
+            0x0000...0x1fff => {
+                gb.cart_ram_enable = @as(u4, @truncate(value)) == 0xa;
+            },
+            0x2000...0x3fff => { // Write ROM Bank number
+                const bank_number: u5 = @truncate(@max(value, 1));
+                gb.cart_current_rom_bank = bank_number;
+            },
+            0x4000...0x7fff => {},
+        },
+        .MBC2 => switch (address) {
+            0x0000...0x3fff => {
+                const rom_control = (address & 0x10) != 0;
+
+                if (rom_control) {
+                    // Write ROM Bank number
+                    const bank_number: u4 = @truncate(@max(value, 1));
+                    gb.cart_current_rom_bank = bank_number;
+                } else {
+                    gb.cart_ram_enable = value == 0x0a;
+                }
+            },
+            0x4000...0x7fff => {},
+        },
+    }
+}
