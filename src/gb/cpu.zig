@@ -5,6 +5,9 @@ const sound = @import("sound.zig");
 const joypad = @import("joypad.zig");
 const cart = @import("cart.zig");
 
+pub const DMGRAMByteSize = 8 * 1024;
+pub const DMGVRAMByteSize = 8 * 1024;
+
 pub const GBState = struct {
     registers: Registers,
     rom: []const u8, // Borrowed from create_state
@@ -12,10 +15,10 @@ pub const GBState = struct {
     cart_current_rom_bank: u8 = 1,
     cart_ram_enable: bool = false,
     cart_current_ram_bank: u8 = 0,
-    memory: []u8,
+    ram: []u8,
+    vram: []u8,
     mmio: MMIO,
     enable_interrupts_master: bool, // IME
-    vram: []u8,
     oam_sprites: [ppu.OAMSpriteCount]ppu.Sprite,
 
     // PPU internal state
@@ -50,15 +53,17 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         std.debug.assert(cart_rom_bytes.len == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
     }
 
-    const memory = try allocator.alloc(u8, 256 * 256); // FIXME
-    errdefer allocator.free(memory);
+    const ram = try allocator.alloc(u8, 8192);
+    errdefer allocator.free(ram);
+
+    const vram = try allocator.alloc(u8, 8192);
+    errdefer allocator.free(vram);
 
     const screen_output = try allocator.alloc(u8, ppu.ScreenSizeBytes);
     errdefer allocator.free(screen_output);
 
     var mmio: MMIO = undefined;
     const mmio_memory: *[MMIOSizeBytes]u8 = @ptrCast(&mmio);
-    const vram = memory[ppu.VRAMBeginOffset..ppu.VRAMEndOffset];
 
     // See this page for the initial state of the io registers:
     // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
@@ -110,10 +115,10 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
         }),
         .rom = cart_rom_bytes,
         .cart_properties = cart_properties,
-        .memory = memory,
+        .ram = ram,
+        .vram = vram,
         .mmio = mmio,
         .enable_interrupts_master = false,
-        .vram = vram,
         .oam_sprites = undefined,
         .screen_output = screen_output,
         .ppu_h_cycles = 0,
@@ -129,7 +134,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
 }
 
 pub fn destroy_state(allocator: std.mem.Allocator, gb: *GBState) void {
-    allocator.free(gb.memory);
+    allocator.free(gb.ram);
+    allocator.free(gb.vram);
     allocator.free(gb.screen_output);
 }
 

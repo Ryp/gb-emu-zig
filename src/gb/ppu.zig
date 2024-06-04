@@ -15,10 +15,6 @@ pub const OAMSpriteCount = 40;
 pub const OAMMemoryByteCount = 160;
 pub const LineMaxActiveSprites = 10;
 
-pub const VRAMBeginOffset = 0x8000;
-pub const VRAMEndOffset = 0xA000;
-pub const VRAMBytes = VRAMEndOffset - VRAMBeginOffset;
-
 const OAMDurationCycles = 80; // FIXME add PPU name
 const DrawMinDurationCycles = 172;
 const HBlankMaxDurationCycles = 204;

@@ -893,8 +893,8 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
             }
         },
         0xa000...0xbfff => return cart.load_external_ram_u8(gb, @intCast(address - 0xa000)),
-        0xc000...0xcfff => return gb.memory[address], // RAM
-        0xd000...0xdfff => return gb.memory[address], // RAM (Banked on CGB)
+        0xc000...0xcfff => return gb.ram[address - 0xc000], // RAM
+        0xd000...0xdfff => return gb.ram[address - 0xc000], // RAM (Banked on CGB)
         0xe000...0xfdff => unreachable, // Echo RAMBANK
         0xfe00...0xfe9f => { // OAMRAM
             assert(!gb.dma_active);
@@ -941,8 +941,8 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             gb.vram[address - 0x8000] = value;
         },
         0xa000...0xbfff => cart.store_external_ram_u8(gb, @intCast(address - 0xa000), value),
-        0xc000...0xcfff => gb.memory[address] = value, // RAM
-        0xd000...0xdfff => gb.memory[address] = value, // RAM (Banked on CGB)
+        0xc000...0xcfff => gb.ram[address - 0xc000] = value, // RAM
+        0xd000...0xdfff => gb.ram[address - 0xc000] = value, // RAM (Banked on CGB)
         0xe000...0xfdff => {}, // FIXME Echo RAMBANK
         0xfe00...0xfe9f => { // OAMRAM
             assert(!gb.dma_active);

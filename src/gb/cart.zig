@@ -272,9 +272,16 @@ pub fn store_rom_u8(gb: *GBState, address: u15, value: u8) void {
 }
 
 pub fn load_external_ram_u8(gb: *GBState, address: u14) u8 {
-    return gb.memory[address];
+    _ = gb;
+    _ = address;
+    unreachable;
+    // return gb.memory[address];
 }
 
 pub fn store_external_ram_u8(gb: *GBState, address: u14, value: u8) void {
-    gb.memory[address] = value;
+    _ = gb;
+    _ = address;
+    _ = value;
+    unreachable;
+    // gb.memory[address] = value;
 }
