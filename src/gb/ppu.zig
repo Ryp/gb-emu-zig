@@ -331,10 +331,18 @@ fn draw_dot(gb: *cpu.GBState, screen_x: u8, screen_y: u8) void {
                 const palette = if (sprite.attributes.dmg_palette == 0) io_ppu.OBP0 else io_ppu.OBP1;
                 const sprite_color = eval_palette(palette, color_id);
 
-                if (color_id != 0) // Transparent for OBJs
-                {
-                    pixel_color = sprite_color;
-                    break;
+                if (sprite.attributes.priority == 0) {
+                    if (color_id != 0) // Transparent for OBJs
+                    {
+                        pixel_color = sprite_color;
+                        break;
+                    }
+                } else {
+                    if (color_id != 0 and pixel_color == 0) // Transparent for OBJs
+                    {
+                        pixel_color = sprite_color;
+                        break;
+                    }
                 }
             }
         }
