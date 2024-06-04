@@ -13,7 +13,7 @@ pub const GBState = struct {
     cart_ram_enable: bool = false,
     cart_current_ram_bank: u8 = 0,
     memory: []u8,
-    mmio: *MMIO,
+    mmio: MMIO,
     enable_interrupts_master: bool, // IME
     vram: []u8,
     oam_sprites: [ppu.OAMSpriteCount]ppu.Sprite,
@@ -56,8 +56,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     const screen_output = try allocator.alloc(u8, ppu.ScreenSizeBytes);
     errdefer allocator.free(screen_output);
 
-    const mmio_memory = memory[0xFF00..];
-    const mmio: *MMIO = @ptrCast(@alignCast(mmio_memory)); // FIXME remove alignCast!
+    var mmio: MMIO = undefined;
+    const mmio_memory: *[MMIOSizeBytes]u8 = @ptrCast(&mmio);
     const vram = memory[ppu.VRAMBeginOffset..ppu.VRAMEndOffset];
 
     // See this page for the initial state of the io registers:
@@ -388,8 +388,10 @@ comptime {
     std.debug.assert(@offsetOf(MMIO, "sound") == 0x10);
     std.debug.assert(@offsetOf(MMIO, "ppu") == 0x40);
     std.debug.assert(@offsetOf(MMIO, "PCM34") == 0x77);
-    std.debug.assert(@sizeOf(MMIO) == 256);
+    std.debug.assert(@sizeOf(MMIO) == MMIOSizeBytes);
 }
+
+pub const MMIOSizeBytes = 256;
 
 pub const TClockPeriod = 4 * 1024 * 1024;
 pub const DIVClockPeriod = 16 * 1024;

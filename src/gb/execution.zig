@@ -878,7 +878,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
     switch (address) {
         0x0000...0x7fff => { // ROM
             assert(!gb.dma_active);
-            return cart.load_rom_u8(gb, @truncate(address)); // FIXME the switch prong should give us a u15 capture ideally
+            return cart.load_rom_u8(gb, @intCast(address)); // FIXME the switch prong should give us a u15 capture ideally
         },
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
@@ -892,7 +892,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
                 return gb.vram[address - 0x8000];
             }
         },
-        0xa000...0xbfff => return gb.memory[address], // External RAM
+        0xa000...0xbfff => return cart.load_external_ram_u8(gb, @intCast(address - 0xa000)),
         0xc000...0xcfff => return gb.memory[address], // RAM
         0xd000...0xdfff => return gb.memory[address], // RAM (Banked on CGB)
         0xe000...0xfdff => unreachable, // Echo RAMBANK
@@ -910,7 +910,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
             const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
-            const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
+            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
 
             switch (typed_offset) {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
@@ -918,7 +918,11 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
                 _ => return mmio_bytes[offset],
             }
         },
-        0xff80...0xfffe => return gb.memory[address], // HRAM
+        0xff80...0xfffe => { // HRAM
+            const offset: u8 = @truncate(address);
+            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            return mmio_bytes[offset];
+        },
     }
 }
 
@@ -928,7 +932,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
     switch (address) {
         0x0000...0x7fff => { // ROM
             assert(!gb.dma_active);
-            cart.store_rom_u8(gb, @truncate(address), value); // FIXME the switch prong should give us a u15 capture ideally
+            cart.store_rom_u8(gb, @intCast(address), value); // FIXME the switch prong should give us a u15 capture ideally
         }, // We can't write into the ROM
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);
@@ -936,7 +940,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
             gb.vram[address - 0x8000] = value;
         },
-        0xa000...0xbfff => gb.memory[address] = value, // External RAM
+        0xa000...0xbfff => cart.store_external_ram_u8(gb, @intCast(address - 0xa000), value),
         0xc000...0xcfff => gb.memory[address] = value, // RAM
         0xd000...0xdfff => gb.memory[address] = value, // RAM (Banked on CGB)
         0xe000...0xfdff => {}, // FIXME Echo RAMBANK
@@ -954,7 +958,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
             const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
-            const mmio_bytes = @as([*]u8, @ptrCast(gb.mmio));
+            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
 
             switch (typed_offset) {
                 // We could probably just write the full byte and not worry
@@ -981,7 +985,11 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 _ => mmio_bytes[offset] = value,
             }
         },
-        0xff80...0xfffe => gb.memory[address] = value, // HRAM
+        0xff80...0xfffe => { // HRAM
+            const offset: u8 = @truncate(address);
+            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            mmio_bytes[offset] = value;
+        },
     }
 }
 
