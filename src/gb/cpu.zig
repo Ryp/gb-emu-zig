@@ -10,6 +10,7 @@ pub const GBState = struct {
     rom: []const u8, // Borrowed from create_state
     cart_properties: cart.CardridgeProperties, // Should get const?
     cart_current_rom_bank: u8 = 1,
+    cart_ram_enable: bool = false,
     cart_current_ram_bank: u8 = 0,
     memory: []u8,
     mmio: *MMIO,
@@ -40,9 +41,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     const cart_header = cart.extract_header_from_rom(cart_rom_bytes);
     const cart_properties = cart.get_cart_properties(cart_header.cart_type);
 
-    std.debug.assert(cart_properties.has_battery == false);
+    // std.debug.assert(cart_properties.has_battery == false);
     std.debug.assert(cart_properties.has_ram == false);
-    std.debug.assert(cart_properties.mbc_type == .None or cart_properties.mbc_type == .MBC1);
 
     if (cart_properties.mbc_type == .None) {
         std.debug.assert(cart_rom_bytes.len == 32 * 1024);

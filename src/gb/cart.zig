@@ -51,8 +51,9 @@ pub fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
 }
 
 pub const MBCType = enum {
-    None,
-    MBC1,
+    None, // 32 kiB ROM
+    MBC1, // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
+    MBC2, // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
 };
 
 pub const CardridgeProperties = struct {
@@ -66,10 +67,10 @@ pub fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
     return switch (cart_type) {
         .ROM_ONLY => .{ .mbc_type = .None },
         .MBC1 => .{ .mbc_type = .MBC1 },
-        //.MBC1_RAM = 0x02,
-        //.MBC1_RAM_BATTERY = 0x03,
-        //.MBC2 = 0x05,
-        //.MBC2_BATTERY = 0x06,
+        .MBC1_RAM => .{ .mbc_type = .MBC1, .has_ram = true },
+        .MBC1_RAM_BATTERY => .{ .mbc_type = .MBC1, .has_ram = true, .has_battery = true },
+        .MBC2 => .{ .mbc_type = .MBC2 },
+        .MBC2_BATTERY => .{ .mbc_type = .MBC2, .has_battery = true },
         //.ROM_RAM = 0x08,
         //.ROM_RAM_BATTERY = 0x09,
         //.MMM01 = 0x0B,
@@ -92,7 +93,7 @@ pub fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
         //.BANDAI_TAMA5 = 0xFD,
         //.HuC3 = 0xFE,
         //.HuC1_RAM_BATTERY = 0xFF,
-        else => .{ .mbc_type = .None }, // FIXME
+        else => unreachable,
     };
 }
 

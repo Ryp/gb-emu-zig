@@ -987,6 +987,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
 fn load_rom_u8(gb: *GBState, address: u15) u8 {
     switch (address) {
         0x0000...0x3fff => { // ROM bank 0
+            // FIXME handle boot ROM here
             return gb.rom[address];
         },
         0x4000...0x7fff => { // ROM bank X
@@ -995,6 +996,10 @@ fn load_rom_u8(gb: *GBState, address: u15) u8 {
                     return gb.rom[address];
                 },
                 .MBC1 => {
+                    const banked_address = @as(u32, address) + @as(u32, gb.cart_current_rom_bank - 1) * 0x4000;
+                    return gb.rom[banked_address];
+                },
+                .MBC2 => {
                     const banked_address = @as(u32, address) + @as(u32, gb.cart_current_rom_bank - 1) * 0x4000; // FIXME
                     return gb.rom[banked_address];
                 },
@@ -1011,10 +1016,26 @@ fn store_rom_u8(gb: *GBState, address: u15, value: u8) void {
     switch (gb.cart_properties.mbc_type) {
         .None => {},
         .MBC1 => switch (address) {
-            0x0000...0x1fff => {},
+            0x0000...0x1fff => {
+                gb.cart_ram_enable = @as(u4, @truncate(value)) == 0xa;
+            },
             0x2000...0x3fff => { // Write ROM Bank number
                 const bank_number: u5 = @truncate(@max(value, 1));
                 gb.cart_current_rom_bank = bank_number;
+            },
+            0x4000...0x7fff => {},
+        },
+        .MBC2 => switch (address) {
+            0x0000...0x3fff => {
+                const rom_control = (address & 0x10) != 0;
+
+                if (rom_control) {
+                    // Write ROM Bank number
+                    const bank_number: u4 = @truncate(@max(value, 1));
+                    gb.cart_current_rom_bank = bank_number;
+                } else {
+                    gb.cart_ram_enable = value == 0x0a;
+                }
             },
             0x4000...0x7fff => {},
         },
