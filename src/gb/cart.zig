@@ -6,6 +6,235 @@ pub const CartHeaderSizeBytes = 0x50;
 
 pub const MaxROMByteSize = 8 * 1024 * 1024;
 
+pub const CartState = struct {
+    rom: []const u8, // Borrowed from create_cart_state
+    mbc_state: MBC_State,
+};
+
+pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
+    const cart_header = extract_header_from_rom(cart_rom_bytes);
+
+    return CartState{
+        .rom = cart_rom_bytes,
+        .mbc_state = try create_mbc_state(allocator, cart_header, cart_rom_bytes.len),
+    };
+}
+
+pub fn destroy_cart_state(allocator: std.mem.Allocator, cart: *CartState) void {
+    destroy_mbc_state(allocator, cart.mbc_state);
+}
+
+pub const MBCType = enum {
+    ROMOnly, // 32 kiB ROM
+    MBC1, // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
+    MBC2, // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
+};
+
+const MBC_State = union(MBCType) {
+    ROMOnly,
+    MBC1: MBC1_State,
+    MBC2: MBC2_State,
+};
+
+const MBC1_State = struct {
+    current_rom_bank: u8 = 1,
+    ram_enable: bool = false,
+    current_ram_bank: u8 = 0,
+};
+
+const MBC2_State = struct {
+    current_rom_bank: u8 = 1,
+    ram_enable: bool = false,
+    nibble_ram: []u4,
+};
+
+pub fn create_mbc_state(allocator: std.mem.Allocator, cart_header: CartHeader, rom_size_bytes: usize) !MBC_State {
+    const cart_properties = get_cart_properties(cart_header.cart_type);
+
+    switch (cart_properties.mbc_type) {
+        .ROMOnly => {
+            std.debug.assert(rom_size_bytes == 32 * 1024);
+            return .{ .ROMOnly = undefined };
+        },
+        .MBC1 => {
+            const ram_size_bytes = (@as(u32, 1) << @as(u5, @intCast(cart_header.ram_size))) * 32 * 1024;
+
+            const ram = try allocator.alloc(u8, ram_size_bytes);
+            errdefer allocator.free(ram);
+
+            std.debug.assert(rom_size_bytes == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
+            return .{ .MBC1 = MBC1_State{} };
+        },
+        .MBC2 => {
+            const nibble_ram = try allocator.alloc(u4, 512);
+            errdefer allocator.free(nibble_ram);
+
+            return .{ .MBC2 = MBC2_State{ .nibble_ram = nibble_ram } };
+        },
+    }
+}
+
+pub fn destroy_mbc_state(allocator: std.mem.Allocator, mbc_state: MBC_State) void {
+    switch (mbc_state) {
+        .ROMOnly => {},
+        .MBC1 => {},
+        .MBC2 => |mbc2| {
+            allocator.free(mbc2.nibble_ram);
+        },
+    }
+}
+
+pub fn load_rom_u8(cart: *const CartState, address: u15) u8 {
+    switch (address) {
+        0x0000...0x3fff => { // ROM bank 0
+            // FIXME handle boot ROM here
+            return cart.rom[address];
+        },
+        0x4000...0x7fff => { // ROM bank X
+            switch (cart.mbc_state) {
+                .ROMOnly => {
+                    return cart.rom[address];
+                },
+                .MBC1 => |mbc1| {
+                    const banked_address = @as(u32, address) + @as(u32, mbc1.current_rom_bank - 1) * 0x4000;
+                    return cart.rom[banked_address];
+                },
+                .MBC2 => |mbc2| {
+                    const banked_address = @as(u32, address) + @as(u32, mbc2.current_rom_bank - 1) * 0x4000; // FIXME
+                    return cart.rom[banked_address];
+                },
+            }
+        },
+    }
+}
+
+pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
+    // Avoid writing here
+    // Unfortunately it's common for official games to do, so avoid asserting for now.
+    // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
+    // assert(address == 0x2000 or address == 0x00c3);
+    switch (cart.mbc_state) {
+        .ROMOnly => {},
+        .MBC1 => |*mbc1| switch (address) {
+            0x0000...0x1fff => {
+                mbc1.ram_enable = @as(u4, @truncate(value)) == 0xa;
+            },
+            0x2000...0x3fff => { // Write ROM Bank number
+                const bank_number: u5 = @truncate(@max(value, 1));
+                mbc1.current_rom_bank = bank_number;
+            },
+            0x4000...0x7fff => {},
+        },
+        .MBC2 => |*mbc2| switch (address) {
+            0x0000...0x3fff => {
+                const rom_control = (address & 0x10) != 0;
+
+                if (rom_control) {
+                    // Write ROM Bank number
+                    const bank_number: u4 = @truncate(@max(value, 1));
+                    mbc2.current_rom_bank = bank_number;
+                } else {
+                    mbc2.ram_enable = value == 0x0a;
+                }
+            },
+            0x4000...0x7fff => {},
+        },
+    }
+}
+
+pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
+    switch (cart.mbc_state) {
+        .ROMOnly => unreachable,
+        .MBC1 => unreachable,
+        .MBC2 => |mbc2| {
+            return mbc2.nibble_ram[address];
+        },
+    }
+}
+
+pub fn store_external_ram_u8(cart: *CartState, address: u13, value: u8) void {
+    switch (cart.mbc_state) {
+        .ROMOnly => unreachable,
+        .MBC1 => unreachable,
+        .MBC2 => |mbc2| {
+            mbc2.nibble_ram[address] = @truncate(value);
+        },
+    }
+}
+
+pub const CardridgeProperties = struct {
+    mbc_type: MBCType,
+    has_ram: bool = false,
+    has_battery: bool = false,
+    has_timer: bool = false,
+    has_rumble: bool = false,
+};
+
+fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
+    return switch (cart_type) {
+        .ROM_ONLY => .{ .mbc_type = .ROMOnly },
+        .MBC1 => .{ .mbc_type = .MBC1 },
+        .MBC1_RAM => .{ .mbc_type = .MBC1, .has_ram = true },
+        .MBC1_RAM_BATTERY => .{ .mbc_type = .MBC1, .has_ram = true, .has_battery = true },
+        .MBC2 => .{ .mbc_type = .MBC2 },
+        .MBC2_BATTERY => .{ .mbc_type = .MBC2, .has_battery = true },
+        //.ROM_RAM = 0x08,
+        //.ROM_RAM_BATTERY = 0x09,
+        //.MMM01 = 0x0B,
+        //.MMM01_RAM = 0x0C,
+        //.MMM01_RAM_BATTERY = 0x0D,
+        //.MBC3_TIMER_BATTERY => .{ .mbc_type = .MBC3, .has_battery = true, .has_timer = true },
+        //.MBC3_TIMER_RAM_BATTERY => .{ .mbc_type = .MBC3, .has_ram = true, .has_battery = true, .has_timer = true },
+        //.MBC3 => .{ .mbc_type = .MBC3 },
+        //.MBC3_RAM => .{ .mbc_type = .MBC3, .has_ram = true },
+        //.MBC3_RAM_BATTERY => .{ .mbc_type = .MBC3, .has_ram = true, .has_battery = true },
+        //.MBC5 => .{ .mbc_type = .MBC5 },
+        //.MBC5_RAM => .{ .mbc_type = .MBC5, .has_ram = true },
+        //.MBC5_RAM_BATTERY => .{ .mbc_type = .MBC5, .has_ram = true, .has_battery = true },
+        //.MBC5_RUMBLE => .{ .mbc_type = .MBC5, .has_rumble = true },
+        //.MBC5_RUMBLE_RAM => .{ .mbc_type = .MBC5, .has_rumble = true, .has_ram = true },
+        //.MBC5_RUMBLE_RAM_BATTERY => .{ .mbc_type = .MBC5, .has_rumble = true, .has_ram = true, .has_battery = true },
+        //.MBC6 = 0x20,
+        //.MBC7_SENSOR_RUMBLE_RAM_BATTERY = 0x22,
+        //.POCKET_CAMERA = 0xFC,
+        //.BANDAI_TAMA5 = 0xFD,
+        //.HuC3 = 0xFE,
+        //.HuC1_RAM_BATTERY = 0xFF,
+        else => unreachable,
+    };
+}
+
+const CardridgeType = enum(u8) {
+    ROM_ONLY = 0x00,
+    MBC1 = 0x01,
+    MBC1_RAM = 0x02,
+    MBC1_RAM_BATTERY = 0x03,
+    MBC2 = 0x05,
+    MBC2_BATTERY = 0x06,
+    ROM_RAM = 0x08,
+    ROM_RAM_BATTERY = 0x09,
+    MMM01 = 0x0B,
+    MMM01_RAM = 0x0C,
+    MMM01_RAM_BATTERY = 0x0D,
+    MBC3_TIMER_BATTERY = 0x0F,
+    MBC3_TIMER_RAM_BATTERY = 0x10,
+    MBC3 = 0x11,
+    MBC3_RAM = 0x12,
+    MBC3_RAM_BATTERY = 0x13,
+    MBC5 = 0x19,
+    MBC5_RAM = 0x1A,
+    MBC5_RAM_BATTERY = 0x1B,
+    MBC5_RUMBLE = 0x1C,
+    MBC5_RUMBLE_RAM = 0x1D,
+    MBC5_RUMBLE_RAM_BATTERY = 0x1E,
+    MBC6 = 0x20,
+    MBC7_SENSOR_RUMBLE_RAM_BATTERY = 0x22,
+    POCKET_CAMERA = 0xFC,
+    BANDAI_TAMA5 = 0xFD,
+    HuC3 = 0xFE,
+    HuC1_RAM_BATTERY = 0xFF,
+};
+
 const CartHeader = packed struct {
     _unused0: u32, // 0x00
     //logo: [LogoSizeBytes]u8, // 0x04
@@ -50,103 +279,6 @@ fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
     return header;
 }
 
-pub const CartState = struct {
-    rom: []const u8, // Borrowed from create_cart_state
-    properties: CardridgeProperties, // Should get const?
-    current_rom_bank: u8 = 1,
-    ram_enable: bool = false,
-    current_ram_bank: u8 = 0,
-    mbc2_ram: []u4, // FIXME Should get into it's own tagged enum for MBC2
-};
-
-pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
-    const cart_header = extract_header_from_rom(cart_rom_bytes);
-    const cart_properties = get_cart_properties(cart_header.cart_type);
-
-    if (cart_properties.mbc_type == .ROMOnly) {
-        std.debug.assert(cart_rom_bytes.len == 32 * 1024);
-    } else if (cart_properties.mbc_type == .MBC1) {
-        std.debug.assert(cart_rom_bytes.len == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
-    }
-
-    const mbc2_ram = try allocator.alloc(u4, 512);
-    errdefer allocator.free(mbc2_ram);
-
-    return CartState{
-        .rom = cart_rom_bytes,
-        .properties = cart_properties,
-        .mbc2_ram = mbc2_ram,
-    };
-}
-
-pub fn destroy_cart_state(allocator: std.mem.Allocator, cart: *CartState) void {
-    allocator.free(cart.mbc2_ram);
-
-    switch (cart.properties.mbc_type) {
-        .ROMOnly => {},
-        .MBC1 => {},
-        .MBC2 => {},
-        .MBC3 => {},
-        .MBC5 => {},
-    }
-}
-
-pub const MBCType = enum {
-    ROMOnly, // 32 kiB ROM
-    MBC1, // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
-    MBC2, // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
-    MBC3, // FIXME
-    MBC5, // FIXME
-};
-
-pub const CardridgeProperties = struct {
-    mbc_type: MBCType,
-    has_ram: bool = false,
-    has_battery: bool = false,
-    has_timer: bool = false,
-    has_rumble: bool = false,
-};
-
-fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
-    return switch (cart_type) {
-        .ROM_ONLY => .{ .mbc_type = .ROMOnly },
-        .MBC1 => .{ .mbc_type = .MBC1 },
-        .MBC1_RAM => .{ .mbc_type = .MBC1, .has_ram = true },
-        .MBC1_RAM_BATTERY => .{ .mbc_type = .MBC1, .has_ram = true, .has_battery = true },
-        .MBC2 => .{ .mbc_type = .MBC2 },
-        .MBC2_BATTERY => .{ .mbc_type = .MBC2, .has_battery = true },
-        //.ROM_RAM = 0x08,
-        //.ROM_RAM_BATTERY = 0x09,
-        //.MMM01 = 0x0B,
-        //.MMM01_RAM = 0x0C,
-        //.MMM01_RAM_BATTERY = 0x0D,
-        .MBC3_TIMER_BATTERY => .{ .mbc_type = .MBC3, .has_battery = true, .has_timer = true },
-        .MBC3_TIMER_RAM_BATTERY => .{ .mbc_type = .MBC3, .has_ram = true, .has_battery = true, .has_timer = true },
-        .MBC3 => .{ .mbc_type = .MBC3 },
-        .MBC3_RAM => .{ .mbc_type = .MBC3, .has_ram = true },
-        .MBC3_RAM_BATTERY => .{ .mbc_type = .MBC3, .has_ram = true, .has_battery = true },
-        .MBC5 => .{ .mbc_type = .MBC5 },
-        .MBC5_RAM => .{ .mbc_type = .MBC5, .has_ram = true },
-        .MBC5_RAM_BATTERY => .{ .mbc_type = .MBC5, .has_ram = true, .has_battery = true },
-        .MBC5_RUMBLE => .{ .mbc_type = .MBC5, .has_rumble = true },
-        .MBC5_RUMBLE_RAM => .{ .mbc_type = .MBC5, .has_rumble = true, .has_ram = true },
-        .MBC5_RUMBLE_RAM_BATTERY => .{ .mbc_type = .MBC5, .has_rumble = true, .has_ram = true, .has_battery = true },
-        //.MBC6 = 0x20,
-        //.MBC7_SENSOR_RUMBLE_RAM_BATTERY = 0x22,
-        //.POCKET_CAMERA = 0xFC,
-        //.BANDAI_TAMA5 = 0xFD,
-        //.HuC3 = 0xFE,
-        //.HuC1_RAM_BATTERY = 0xFF,
-        else => unreachable,
-    };
-}
-
-const NintendoLogoBitmap = [LogoSizeBytes]u8{
-    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
-    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
-    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
-};
-
 comptime {
     std.debug.assert(@offsetOf(CartHeader, "_logo0") == 0x04);
     std.debug.assert(@offsetOf(CartHeader, "_title0") == 0x34);
@@ -155,6 +287,12 @@ comptime {
     std.debug.assert(@offsetOf(CartHeader, "cart_type") == 0x47);
     std.debug.assert(@sizeOf(CartHeader) == CartHeaderSizeBytes);
 }
+
+const NintendoLogoBitmap = [LogoSizeBytes]u8{
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+};
 
 // pub const NewLicenseeCode = enum(u8) {
 //     None                                                  0x00
@@ -222,120 +360,3 @@ comptime {
 //     MTO                                                   0xBL
 //     Kodansha                                              0xDK
 // };
-
-const CardridgeType = enum(u8) {
-    ROM_ONLY = 0x00,
-    MBC1 = 0x01,
-    MBC1_RAM = 0x02,
-    MBC1_RAM_BATTERY = 0x03,
-    MBC2 = 0x05,
-    MBC2_BATTERY = 0x06,
-    ROM_RAM = 0x08,
-    ROM_RAM_BATTERY = 0x09,
-    MMM01 = 0x0B,
-    MMM01_RAM = 0x0C,
-    MMM01_RAM_BATTERY = 0x0D,
-    MBC3_TIMER_BATTERY = 0x0F,
-    MBC3_TIMER_RAM_BATTERY = 0x10,
-    MBC3 = 0x11,
-    MBC3_RAM = 0x12,
-    MBC3_RAM_BATTERY = 0x13,
-    MBC5 = 0x19,
-    MBC5_RAM = 0x1A,
-    MBC5_RAM_BATTERY = 0x1B,
-    MBC5_RUMBLE = 0x1C,
-    MBC5_RUMBLE_RAM = 0x1D,
-    MBC5_RUMBLE_RAM_BATTERY = 0x1E,
-    MBC6 = 0x20,
-    MBC7_SENSOR_RUMBLE_RAM_BATTERY = 0x22,
-    POCKET_CAMERA = 0xFC,
-    BANDAI_TAMA5 = 0xFD,
-    HuC3 = 0xFE,
-    HuC1_RAM_BATTERY = 0xFF,
-};
-
-pub fn load_rom_u8(cart: *const CartState, address: u15) u8 {
-    switch (address) {
-        0x0000...0x3fff => { // ROM bank 0
-            // FIXME handle boot ROM here
-            return cart.rom[address];
-        },
-        0x4000...0x7fff => { // ROM bank X
-            switch (cart.properties.mbc_type) {
-                .ROMOnly => {
-                    return cart.rom[address];
-                },
-                .MBC1 => {
-                    const banked_address = @as(u32, address) + @as(u32, cart.current_rom_bank - 1) * 0x4000;
-                    return cart.rom[banked_address];
-                },
-                .MBC2 => {
-                    const banked_address = @as(u32, address) + @as(u32, cart.current_rom_bank - 1) * 0x4000; // FIXME
-                    return cart.rom[banked_address];
-                },
-                .MBC3 => unreachable,
-                .MBC5 => unreachable,
-            }
-        },
-    }
-}
-
-pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
-    // Avoid writing here
-    // Unfortunately it's common for official games to do, so avoid asserting for now.
-    // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
-    // assert(address == 0x2000 or address == 0x00c3);
-    switch (cart.properties.mbc_type) {
-        .ROMOnly => {},
-        .MBC1 => switch (address) {
-            0x0000...0x1fff => {
-                cart.ram_enable = @as(u4, @truncate(value)) == 0xa;
-            },
-            0x2000...0x3fff => { // Write ROM Bank number
-                const bank_number: u5 = @truncate(@max(value, 1));
-                cart.current_rom_bank = bank_number;
-            },
-            0x4000...0x7fff => {},
-        },
-        .MBC2 => switch (address) {
-            0x0000...0x3fff => {
-                const rom_control = (address & 0x10) != 0;
-
-                if (rom_control) {
-                    // Write ROM Bank number
-                    const bank_number: u4 = @truncate(@max(value, 1));
-                    cart.current_rom_bank = bank_number;
-                } else {
-                    cart.ram_enable = value == 0x0a;
-                }
-            },
-            0x4000...0x7fff => {},
-        },
-        .MBC3 => unreachable,
-        .MBC5 => unreachable,
-    }
-}
-
-pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
-    switch (cart.properties.mbc_type) {
-        .ROMOnly => unreachable,
-        .MBC1 => unreachable,
-        .MBC2 => {
-            return cart.mbc2_ram[address];
-        },
-        .MBC3 => unreachable,
-        .MBC5 => unreachable,
-    }
-}
-
-pub fn store_external_ram_u8(cart: *CartState, address: u13, value: u8) void {
-    switch (cart.properties.mbc_type) {
-        .ROMOnly => unreachable,
-        .MBC1 => unreachable,
-        .MBC2 => {
-            cart.mbc2_ram[address] = @truncate(value);
-        },
-        .MBC3 => unreachable,
-        .MBC5 => unreachable,
-    }
-}
