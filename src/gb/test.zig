@@ -3,6 +3,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const cpu = @import("cpu.zig");
+const cart = @import("cart.zig");
 const instructions = @import("instructions.zig");
 const execution = @import("execution.zig");
 
@@ -14,8 +15,11 @@ test {
 
     const rom_bytes = [2]u8{ 3, 3 };
 
-    var gb = try cpu.create_state(allocator, &rom_bytes);
-    defer cpu.destroy_state(allocator, &gb);
+    var cart_state = try cart.create_cart_state(allocator, &rom_bytes);
+    defer cart.destroy_cart_state(allocator, &cart_state);
+
+    var gb = try cpu.create_gb_state(allocator, &cart_state);
+    defer cpu.destroy_gb_state(allocator, &gb);
 
     try expectEqual(0x00, gb.registers.b);
     try expectEqual(0x13, gb.registers.c);

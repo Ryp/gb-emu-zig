@@ -36,8 +36,11 @@ pub fn main() !void {
     var rom_buffer: [cart.MaxROMByteSize]u8 = undefined;
     const rom_bytes_read = try file.read(&rom_buffer);
 
-    var gb = try cpu.create_state(allocator, rom_buffer[0..rom_bytes_read]);
-    defer cpu.destroy_state(allocator, &gb);
+    var cart_state = try cart.create_cart_state(allocator, rom_buffer[0..rom_bytes_read]);
+    defer cart.destroy_cart_state(allocator, &cart_state);
+
+    var gb = try cpu.create_gb_state(allocator, &cart_state);
+    defer cpu.destroy_gb_state(allocator, &gb);
 
     try sdl2_frontend.execute_main_loop(allocator, &gb);
 }

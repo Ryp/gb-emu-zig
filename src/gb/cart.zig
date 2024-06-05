@@ -51,35 +51,39 @@ fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
 }
 
 pub const CartState = struct {
-    rom: []const u8, // Borrowed from create_state
+    rom: []const u8, // Borrowed from create_cart_state
     properties: CardridgeProperties, // Should get const?
     current_rom_bank: u8 = 1,
     ram_enable: bool = false,
     current_ram_bank: u8 = 0,
+    mbc2_ram: []u4, // FIXME Should get into it's own tagged enum for MBC2
 };
 
-pub fn create_cart_state(cart_rom_bytes: []const u8) CartState {
+pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
     const cart_header = extract_header_from_rom(cart_rom_bytes);
     const cart_properties = get_cart_properties(cart_header.cart_type);
 
-    // std.debug.assert(cart_properties.has_battery == false);
-    std.debug.assert(cart_properties.has_ram == false);
-
-    if (cart_properties.mbc_type == .None) {
+    if (cart_properties.mbc_type == .ROMOnly) {
         std.debug.assert(cart_rom_bytes.len == 32 * 1024);
     } else if (cart_properties.mbc_type == .MBC1) {
         std.debug.assert(cart_rom_bytes.len == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
     }
 
+    const mbc2_ram = try allocator.alloc(u4, 512);
+    errdefer allocator.free(mbc2_ram);
+
     return CartState{
         .rom = cart_rom_bytes,
         .properties = cart_properties,
+        .mbc2_ram = mbc2_ram,
     };
 }
 
-pub fn destroy_cart_state(cart: CartState) void {
+pub fn destroy_cart_state(allocator: std.mem.Allocator, cart: *CartState) void {
+    allocator.free(cart.mbc2_ram);
+
     switch (cart.properties.mbc_type) {
-        .None => {},
+        .ROMOnly => {},
         .MBC1 => {},
         .MBC2 => {},
         .MBC3 => {},
@@ -88,7 +92,7 @@ pub fn destroy_cart_state(cart: CartState) void {
 }
 
 pub const MBCType = enum {
-    None, // 32 kiB ROM
+    ROMOnly, // 32 kiB ROM
     MBC1, // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
     MBC2, // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
     MBC3, // FIXME
@@ -105,7 +109,7 @@ pub const CardridgeProperties = struct {
 
 fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
     return switch (cart_type) {
-        .ROM_ONLY => .{ .mbc_type = .None },
+        .ROM_ONLY => .{ .mbc_type = .ROMOnly },
         .MBC1 => .{ .mbc_type = .MBC1 },
         .MBC1_RAM => .{ .mbc_type = .MBC1, .has_ram = true },
         .MBC1_RAM_BATTERY => .{ .mbc_type = .MBC1, .has_ram = true, .has_battery = true },
@@ -258,7 +262,7 @@ pub fn load_rom_u8(cart: *const CartState, address: u15) u8 {
         },
         0x4000...0x7fff => { // ROM bank X
             switch (cart.properties.mbc_type) {
-                .None => {
+                .ROMOnly => {
                     return cart.rom[address];
                 },
                 .MBC1 => {
@@ -282,7 +286,7 @@ pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
     // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
     // assert(address == 0x2000 or address == 0x00c3);
     switch (cart.properties.mbc_type) {
-        .None => {},
+        .ROMOnly => {},
         .MBC1 => switch (address) {
             0x0000...0x1fff => {
                 cart.ram_enable = @as(u4, @truncate(value)) == 0xa;
@@ -312,17 +316,26 @@ pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
     }
 }
 
-pub fn load_external_ram_u8(cart: *const CartState, address: u14) u8 {
-    _ = cart;
-    _ = address;
-    unreachable;
-    // return gb.memory[address];
+pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
+    switch (cart.properties.mbc_type) {
+        .ROMOnly => unreachable,
+        .MBC1 => unreachable,
+        .MBC2 => {
+            return cart.mbc2_ram[address];
+        },
+        .MBC3 => unreachable,
+        .MBC5 => unreachable,
+    }
 }
 
-pub fn store_external_ram_u8(cart: *CartState, address: u14, value: u8) void {
-    _ = cart;
-    _ = address;
-    _ = value;
-    unreachable;
-    // gb.memory[address] = value;
+pub fn store_external_ram_u8(cart: *CartState, address: u13, value: u8) void {
+    switch (cart.properties.mbc_type) {
+        .ROMOnly => unreachable,
+        .MBC1 => unreachable,
+        .MBC2 => {
+            cart.mbc2_ram[address] = @truncate(value);
+        },
+        .MBC3 => unreachable,
+        .MBC5 => unreachable,
+    }
 }

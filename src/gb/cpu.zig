@@ -9,7 +9,7 @@ pub const DMGRAMByteSize = 8 * 1024;
 pub const DMGVRAMByteSize = 8 * 1024;
 
 pub const GBState = struct {
-    cart: cart.CartState,
+    cart: *cart.CartState,
     registers: Registers,
     ram: []u8,
     vram: []u8,
@@ -36,9 +36,7 @@ pub const GBState = struct {
     total_t_cycles: u64,
 };
 
-pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
-    const cart_state = cart.create_cart_state(cart_rom_bytes);
-
+pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState) !GBState {
     const ram = try allocator.alloc(u8, 8192);
     errdefer allocator.free(ram);
 
@@ -118,9 +116,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     };
 }
 
-pub fn destroy_state(allocator: std.mem.Allocator, gb: *GBState) void {
-    cart.destroy_cart_state(gb.cart);
-
+pub fn destroy_gb_state(allocator: std.mem.Allocator, gb: *GBState) void {
     allocator.free(gb.ram);
     allocator.free(gb.vram);
     allocator.free(gb.screen_output);
