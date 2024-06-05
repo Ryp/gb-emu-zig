@@ -9,12 +9,8 @@ pub const DMGRAMByteSize = 8 * 1024;
 pub const DMGVRAMByteSize = 8 * 1024;
 
 pub const GBState = struct {
+    cart: cart.CartState,
     registers: Registers,
-    rom: []const u8, // Borrowed from create_state
-    cart_properties: cart.CardridgeProperties, // Should get const?
-    cart_current_rom_bank: u8 = 1,
-    cart_ram_enable: bool = false,
-    cart_current_ram_bank: u8 = 0,
     ram: []u8,
     vram: []u8,
     mmio: MMIO,
@@ -41,17 +37,7 @@ pub const GBState = struct {
 };
 
 pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !GBState {
-    const cart_header = cart.extract_header_from_rom(cart_rom_bytes);
-    const cart_properties = cart.get_cart_properties(cart_header.cart_type);
-
-    // std.debug.assert(cart_properties.has_battery == false);
-    std.debug.assert(cart_properties.has_ram == false);
-
-    if (cart_properties.mbc_type == .None) {
-        std.debug.assert(cart_rom_bytes.len == 32 * 1024);
-    } else if (cart_properties.mbc_type == .MBC1) {
-        std.debug.assert(cart_rom_bytes.len == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
-    }
+    const cart_state = cart.create_cart_state(cart_rom_bytes);
 
     const ram = try allocator.alloc(u8, 8192);
     errdefer allocator.free(ram);
@@ -105,6 +91,7 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
     mmio.JOYP._unused = 0b11;
 
     return GBState{
+        .cart = cart_state,
         .registers = @bitCast(Registers_R16{
             .bc = 0x0013,
             .de = 0x00D8,
@@ -113,8 +100,6 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
             .sp = 0xFFFE,
             .pc = 0x0100,
         }),
-        .rom = cart_rom_bytes,
-        .cart_properties = cart_properties,
         .ram = ram,
         .vram = vram,
         .mmio = mmio,
@@ -134,6 +119,8 @@ pub fn create_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !G
 }
 
 pub fn destroy_state(allocator: std.mem.Allocator, gb: *GBState) void {
+    cart.destroy_cart_state(gb.cart);
+
     allocator.free(gb.ram);
     allocator.free(gb.vram);
     allocator.free(gb.screen_output);
