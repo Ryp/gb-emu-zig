@@ -1,22 +1,32 @@
 const std = @import("std");
-
-pub const LogoSizeBytes = 48;
-pub const CartHeaderOffsetBytes = 0x100;
-pub const CartHeaderSizeBytes = 0x50;
+const assert = std.debug.assert;
 
 pub const MaxROMByteSize = 8 * 1024 * 1024;
 
 pub const CartState = struct {
     rom: []const u8, // Borrowed from create_cart_state
+    rom_bank_count: u10,
+    ram_bank_count: u5,
     mbc_state: MBC_State,
 };
 
 pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
     const cart_header = extract_header_from_rom(cart_rom_bytes);
 
+    const rom_bank_count = get_rom_bank_count_from_header(cart_header);
+    assert(cart_rom_bytes.len == @as(usize, rom_bank_count) * 16 * 1024);
+
+    const ram_bank_count = get_ram_bank_count_from_header(cart_header);
+    const ram_size_bytes = @as(usize, ram_bank_count) * 8 * 1024;
+
+    const properties = get_cart_properties(cart_header.cart_type);
+    assert(properties.has_ram == (ram_bank_count != 0));
+
     return CartState{
         .rom = cart_rom_bytes,
-        .mbc_state = try create_mbc_state(allocator, cart_header, cart_rom_bytes.len),
+        .rom_bank_count = rom_bank_count,
+        .ram_bank_count = ram_bank_count,
+        .mbc_state = try create_mbc_state(allocator, properties, ram_size_bytes),
     };
 }
 
@@ -24,10 +34,10 @@ pub fn destroy_cart_state(allocator: std.mem.Allocator, cart: *CartState) void {
     destroy_mbc_state(allocator, cart.mbc_state);
 }
 
-pub const MBCType = enum {
-    ROMOnly, // 32 kiB ROM
-    MBC1, // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
-    MBC2, // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
+const MBCType = enum {
+    ROMOnly,
+    MBC1,
+    MBC2,
 };
 
 const MBC_State = union(MBCType) {
@@ -36,48 +46,51 @@ const MBC_State = union(MBCType) {
     MBC2: MBC2_State,
 };
 
+// Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
 const MBC1_State = struct {
     current_rom_bank: u8 = 1,
+    ram: []u8,
     ram_enable: bool = false,
     current_ram_bank: u8 = 0,
 };
 
+// Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
 const MBC2_State = struct {
     current_rom_bank: u8 = 1,
     ram_enable: bool = false,
     nibble_ram: []u4,
 };
 
-pub fn create_mbc_state(allocator: std.mem.Allocator, cart_header: CartHeader, rom_size_bytes: usize) !MBC_State {
-    const cart_properties = get_cart_properties(cart_header.cart_type);
-
-    switch (cart_properties.mbc_type) {
+fn create_mbc_state(allocator: std.mem.Allocator, properties: CartridgeProperties, ram_size_bytes: usize) !MBC_State {
+    switch (properties.mbc_type) {
         .ROMOnly => {
-            std.debug.assert(rom_size_bytes == 32 * 1024);
             return .{ .ROMOnly = undefined };
         },
         .MBC1 => {
-            const ram_size_bytes = (@as(u32, 1) << @as(u5, @intCast(cart_header.ram_size))) * 32 * 1024;
-
             const ram = try allocator.alloc(u8, ram_size_bytes);
             errdefer allocator.free(ram);
 
-            std.debug.assert(rom_size_bytes == (@as(u32, 1) << @as(u5, @intCast(cart_header.rom_size))) * 32 * 1024);
-            return .{ .MBC1 = MBC1_State{} };
+            return .{ .MBC1 = MBC1_State{
+                .ram = ram,
+            } };
         },
         .MBC2 => {
             const nibble_ram = try allocator.alloc(u4, 512);
             errdefer allocator.free(nibble_ram);
 
-            return .{ .MBC2 = MBC2_State{ .nibble_ram = nibble_ram } };
+            return .{ .MBC2 = MBC2_State{
+                .nibble_ram = nibble_ram,
+            } };
         },
     }
 }
 
-pub fn destroy_mbc_state(allocator: std.mem.Allocator, mbc_state: MBC_State) void {
+fn destroy_mbc_state(allocator: std.mem.Allocator, mbc_state: MBC_State) void {
     switch (mbc_state) {
         .ROMOnly => {},
-        .MBC1 => {},
+        .MBC1 => |mbc1| {
+            allocator.free(mbc1.ram);
+        },
         .MBC2 => |mbc2| {
             allocator.free(mbc2.nibble_ram);
         },
@@ -109,18 +122,20 @@ pub fn load_rom_u8(cart: *const CartState, address: u15) u8 {
 }
 
 pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
-    // Avoid writing here
-    // Unfortunately it's common for official games to do, so avoid asserting for now.
-    // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
-    // assert(address == 0x2000 or address == 0x00c3);
     switch (cart.mbc_state) {
-        .ROMOnly => {},
+        .ROMOnly => {
+            // Avoid writing here
+            // Unfortunately it's common for official games to do, so avoid asserting for now.
+            // https://www.reddit.com/r/EmuDev/comments/5ht388/gb_why_does_tetris_write_to_the_rom/
+            assert(address == 0x2000);
+        },
         .MBC1 => |*mbc1| switch (address) {
             0x0000...0x1fff => {
+                assert(cart.ram_bank_count != 0);
                 mbc1.ram_enable = @as(u4, @truncate(value)) == 0xa;
             },
             0x2000...0x3fff => { // Write ROM Bank number
-                const bank_number: u5 = @truncate(@max(value, 1));
+                const bank_number: u5 = @truncate(@max(value, 1)); // FIXME Modulo
                 mbc1.current_rom_bank = bank_number;
             },
             0x4000...0x7fff => {},
@@ -131,7 +146,7 @@ pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
 
                 if (rom_control) {
                     // Write ROM Bank number
-                    const bank_number: u4 = @truncate(@max(value, 1));
+                    const bank_number: u4 = @truncate(@max(value % cart.rom_bank_count, 1)); // FIXME Modulo
                     mbc2.current_rom_bank = bank_number;
                 } else {
                     mbc2.ram_enable = value == 0x0a;
@@ -145,7 +160,10 @@ pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
 pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
     switch (cart.mbc_state) {
         .ROMOnly => unreachable,
-        .MBC1 => unreachable,
+        .MBC1 => |mbc1| {
+            assert(cart.ram_bank_count != 0 and mbc1.ram_enable);
+            return mbc1.ram[address]; // FIXME Banks
+        },
         .MBC2 => |mbc2| {
             return mbc2.nibble_ram[address];
         },
@@ -155,14 +173,17 @@ pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
 pub fn store_external_ram_u8(cart: *CartState, address: u13, value: u8) void {
     switch (cart.mbc_state) {
         .ROMOnly => unreachable,
-        .MBC1 => unreachable,
+        .MBC1 => |mbc1| {
+            assert(cart.ram_bank_count != 0 and mbc1.ram_enable);
+            mbc1.ram[address] = value; // FIXME Banks
+        },
         .MBC2 => |mbc2| {
-            mbc2.nibble_ram[address] = @truncate(value);
+            mbc2.nibble_ram[address] = @truncate(value); // FIXME Bounds
         },
     }
 }
 
-pub const CardridgeProperties = struct {
+pub const CartridgeProperties = struct {
     mbc_type: MBCType,
     has_ram: bool = false,
     has_battery: bool = false,
@@ -170,7 +191,7 @@ pub const CardridgeProperties = struct {
     has_rumble: bool = false,
 };
 
-fn get_cart_properties(cart_type: CardridgeType) CardridgeProperties {
+fn get_cart_properties(cart_type: CardridgeType) CartridgeProperties {
     return switch (cart_type) {
         .ROM_ONLY => .{ .mbc_type = .ROMOnly },
         .MBC1 => .{ .mbc_type = .MBC1 },
@@ -235,6 +256,10 @@ const CardridgeType = enum(u8) {
     HuC1_RAM_BATTERY = 0xFF,
 };
 
+const LogoSizeBytes = 48;
+const CartHeaderOffsetBytes = 0x100;
+const CartHeaderSizeBytes = 0x50;
+
 const CartHeader = packed struct {
     _unused0: u32, // 0x00
     //logo: [LogoSizeBytes]u8, // 0x04
@@ -269,7 +294,7 @@ const CartHeader = packed struct {
 };
 
 fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
-    std.debug.assert(cart_rom_bytes.len >= CartHeaderOffsetBytes + CartHeaderSizeBytes);
+    assert(cart_rom_bytes.len >= CartHeaderOffsetBytes + CartHeaderSizeBytes);
 
     var header: CartHeader = undefined;
     const header_bytes: *[CartHeaderSizeBytes]u8 = @ptrCast(&header);
@@ -279,13 +304,33 @@ fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
     return header;
 }
 
+// https://gbdev.io/pandocs/The_Cartridge_Header.html#0148--rom-size
+fn get_rom_bank_count_from_header(cart_header: CartHeader) u10 {
+    return switch (cart_header.rom_size) {
+        0...8 => |value| @as(u10, 1) << @intCast(value + 1),
+        else => unreachable,
+    };
+}
+
+// https://gbdev.io/pandocs/The_Cartridge_Header.html#0149--ram-size
+fn get_ram_bank_count_from_header(cart_header: CartHeader) u5 {
+    return switch (cart_header.ram_size) {
+        0 => 0,
+        2 => 1,
+        3 => 4,
+        4 => 16,
+        5 => 8,
+        else => unreachable,
+    };
+}
+
 comptime {
-    std.debug.assert(@offsetOf(CartHeader, "_logo0") == 0x04);
-    std.debug.assert(@offsetOf(CartHeader, "_title0") == 0x34);
-    std.debug.assert(@offsetOf(CartHeader, "new_licensee_code_a") == 0x44);
-    std.debug.assert(@offsetOf(CartHeader, "sgb_flag") == 0x46);
-    std.debug.assert(@offsetOf(CartHeader, "cart_type") == 0x47);
-    std.debug.assert(@sizeOf(CartHeader) == CartHeaderSizeBytes);
+    assert(@offsetOf(CartHeader, "_logo0") == 0x04);
+    assert(@offsetOf(CartHeader, "_title0") == 0x34);
+    assert(@offsetOf(CartHeader, "new_licensee_code_a") == 0x44);
+    assert(@offsetOf(CartHeader, "sgb_flag") == 0x46);
+    assert(@offsetOf(CartHeader, "cart_type") == 0x47);
+    assert(@sizeOf(CartHeader) == CartHeaderSizeBytes);
 }
 
 const NintendoLogoBitmap = [LogoSizeBytes]u8{
