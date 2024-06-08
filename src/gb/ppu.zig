@@ -178,7 +178,7 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
 
             if (previous_ppu_mode != .VBlank) {
                 io_ppu.STAT.ppu_mode = .VBlank;
-                gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskVBlank;
+                gb.mmio.IF.requested_interrupt.flag.vblank = true;
             }
         }
 
@@ -187,7 +187,7 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
 
         // Only request an interrupt when the interrupt line goes up
         if (!gb.last_stat_interrupt_line and interrupt_line) {
-            gb.mmio.IF.requested_interrupts_mask |= cpu.InterruptMaskLCD;
+            gb.mmio.IF.requested_interrupt.flag.lcd = true;
         }
 
         gb.last_stat_interrupt_line = interrupt_line;

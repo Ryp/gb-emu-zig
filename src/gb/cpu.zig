@@ -33,7 +33,16 @@ pub const GBState = struct {
 
     is_halted: bool = false, // FIXME
     pending_t_cycles: u8, // How much the CPU is in advance over other components
-    total_t_cycles: u64,
+    clock: packed union {
+        t_cycles: u64,
+        bits: packed struct {
+            _unused0: u8,
+            div: u8, // We get the value of DIV for free this way!
+            _unused1: u8,
+            _unused2: u8,
+            _unused3: u32,
+        },
+    },
 };
 
 pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState) !GBState {
@@ -51,8 +60,8 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
 
     // See this page for the initial state of the io registers:
     // http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
-    mmio_memory[0x05] = 0x00;
-    mmio_memory[0x06] = 0x00;
+    mmio.TIMA = 0;
+    mmio.TMA = 0;
     mmio_memory[0x07] = 0x00;
     mmio_memory[0x10] = 0x80;
     mmio_memory[0x11] = 0xBF;
@@ -112,7 +121,7 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
         .active_sprite_count = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .pending_t_cycles = 0,
-        .total_t_cycles = 0,
+        .clock = .{ .t_cycles = 0 },
     };
 }
 
@@ -199,7 +208,16 @@ pub const MMIO = packed struct {
     DIV: u8, //= 0x04, // Divider Register (R/W)
     TIMA: u8, //= 0x05, // Timer counter (R/W)
     TMA: u8, //= 0x06, // Timer Modulo (R/W)
-    TAC: u8, // = 0x07, // Timer Control (R/W)
+    TAC: packed struct { // = 0x07, // Timer Control (R/W)
+        clock_mode: enum(u2) {
+            Every256MCycles = 0,
+            Every4MCycles = 1,
+            Every16MCycles = 2,
+            Every64MCycles = 3,
+        },
+        enable_timer: bool,
+        _unused: u5,
+    },
     _unused_08: u8,
     _unused_09: u8,
     _unused_0A: u8,
@@ -208,7 +226,16 @@ pub const MMIO = packed struct {
     _unused_0D: u8,
     _unused_0E: u8,
     IF: packed struct { //= 0x0F, // Interrupt Flag (R/W)
-        requested_interrupts_mask: u5,
+        requested_interrupt: packed union {
+            mask: u5,
+            flag: packed struct {
+                vblank: bool,
+                lcd: bool,
+                timer: bool,
+                serial: bool,
+                joypad: bool,
+            },
+        },
         _unused: u3,
     },
     sound: sound.Sound_MMIO,
@@ -296,7 +323,7 @@ pub const MMIO = packed struct {
     hram_FD: u8,
     hram_FE: u8,
     IE: packed struct { //= 0xFF, // Interrupt Enable
-        enable_interrupts_mask: u5,
+        enabled_interrupt_mask: u5,
         _unused: u3,
     },
 };
@@ -306,10 +333,10 @@ pub const MMIO_Offset = enum(u8) {
     JOYP = 0x00, // Joypad (R/W)
     // SB         = 0x01, // Serial transfer data (R/W)
     // SC         = 0x02, // Serial Transfer Control (R/W)
-    // DIV        = 0x04, // Divider Register (R/W)
-    // TIMA       = 0x05, // Timer counter (R/W)
-    // TMA        = 0x06, // Timer Modulo (R/W)
-    // TAC        = 0x07, // Timer Control (R/W)
+    DIV = 0x04, // Divider Register (R/W)
+    TIMA = 0x05, // Timer counter (R/W)
+    TMA = 0x06, // Timer Modulo (R/W)
+    TAC = 0x07, // Timer Control (R/W)
     // IF         = 0x0F, // Interrupt Flag (R/W)
     // NR10       = 0x10, // Channel 1 Sweep register (R/W)
     // NR11       = 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
@@ -384,11 +411,5 @@ pub const MMIOSizeBytes = 256;
 
 pub const TClockPeriod = 4 * 1024 * 1024;
 pub const DIVClockPeriod = 16 * 1024;
-
-pub const InterruptMaskVBlank = 0b00001;
-pub const InterruptMaskLCD = 0b00010;
-pub const InterruptMaskTimer = 0b00100;
-pub const InterruptMaskSerial = 0b01000;
-pub const InterruptMaskJoypad = 0b10000;
 
 pub const DMACopyByteCount = 160;

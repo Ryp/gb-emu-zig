@@ -24,14 +24,14 @@ pub fn step(gb: *GBState) !void {
     joypad.update_state(gb);
 
     // Service interrupts
-    const interrupt_mask_to_service = gb.mmio.IF.requested_interrupts_mask & gb.mmio.IE.enable_interrupts_mask;
+    const interrupt_mask_to_service = gb.mmio.IF.requested_interrupt.mask & gb.mmio.IE.enabled_interrupt_mask;
 
     if (gb.enable_interrupts_master and interrupt_mask_to_service != 0) {
         const interrupt_bit_index = @ctz(interrupt_mask_to_service); // First set bit gets priority
         const interrupt_bit_mask: u5 = @intCast(@as(u16, 1) << interrupt_bit_index);
         const interrupt_jump_address: u8 = 0x40 + @as(u8, interrupt_bit_index) * 0x08;
 
-        gb.mmio.IF.requested_interrupts_mask ^= interrupt_bit_mask; // Mark current interrupt as serviced
+        gb.mmio.IF.requested_interrupt.mask ^= interrupt_bit_mask; // Mark current interrupt as serviced
         gb.enable_interrupts_master = false; // Disable interrupts while we service them
 
         if (enable_debug) {
@@ -52,7 +52,7 @@ pub fn step(gb: *GBState) !void {
         if (enable_debug) {
             print_register_debug(gb.registers);
             std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
-            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enable_interrupts_mask, gb.mmio.IF.requested_interrupts_mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
+            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enabled_interrupt_mask, gb.mmio.IF.requested_interrupt.mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
 
             instructions.debug_print(current_instruction);
         }
@@ -71,9 +71,27 @@ pub fn step(gb: *GBState) !void {
 fn consume_pending_cycles(gb: *GBState) void {
     const scope = tracy.trace(@src());
     defer scope.end();
-    gb.total_t_cycles += gb.pending_t_cycles;
+
+    const prev_clock_t_cycles = gb.clock.t_cycles;
+
+    gb.clock.t_cycles += gb.pending_t_cycles;
 
     if (gb.pending_t_cycles > 0) {
+        if (gb.mmio.TAC.enable_timer) {
+            // https://gbdev.io/pandocs/Timer_Obscure_Behaviour.html#relation-between-timer-and-divider-register
+            const falling_edge_mask = prev_clock_t_cycles & ~gb.clock.t_cycles;
+            const overflow: u1 = @truncate(switch (gb.mmio.TAC.clock_mode) {
+                .Every4MCycles => falling_edge_mask >> 3,
+                .Every16MCycles => falling_edge_mask >> 5,
+                .Every64MCycles => falling_edge_mask >> 7,
+                .Every256MCycles => falling_edge_mask >> 9,
+            });
+
+            if (overflow == 1) {
+                increment_tima(gb);
+            }
+        }
+
         if (gb.dma_active) {
             step_dma(gb, gb.pending_t_cycles);
         }
@@ -82,10 +100,19 @@ fn consume_pending_cycles(gb: *GBState) void {
             ppu.step_ppu(gb, gb.pending_t_cycles);
         }
 
-        gb.mmio.DIV = @truncate(gb.total_t_cycles / (cpu.TClockPeriod / cpu.DIVClockPeriod));
+        gb.mmio.DIV = gb.clock.bits.div;
     }
 
     gb.pending_t_cycles = 0; // FIXME
+}
+
+fn increment_tima(gb: *cpu.GBState) void {
+    gb.mmio.TIMA, const overflow = @addWithOverflow(gb.mmio.TIMA, 1);
+
+    if (overflow == 1) {
+        gb.mmio.TIMA = gb.mmio.TMA;
+        gb.mmio.IF.requested_interrupt.flag.timer = true;
+    }
 }
 
 fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
@@ -919,6 +946,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
 
             switch (typed_offset) {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
+                .DIV, .TIMA, .TMA, .TAC => return mmio_bytes[offset],
                 .LCDC, .DMA => return mmio_bytes[offset],
                 _ => return mmio_bytes[offset],
             }
@@ -968,6 +996,10 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             switch (typed_offset) {
                 // We could probably just write the full byte and not worry
                 .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
+                .DIV => { // Write resets clock
+                    gb.mmio.DIV = 0;
+                    gb.clock.t_cycles = 0;
+                },
                 .LCDC => {
                     const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
                     mmio_bytes[offset] = value;
@@ -987,6 +1019,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     gb.dma_active = true;
                     gb.dma_current_offset = 0;
                 },
+                .TIMA, .TMA, .TAC => mmio_bytes[offset] = value,
                 _ => mmio_bytes[offset] = value,
             }
         },
