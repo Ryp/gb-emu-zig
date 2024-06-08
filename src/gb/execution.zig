@@ -876,9 +876,14 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
     spend_cycles(gb, 4);
 
     switch (address) {
-        0x0000...0x7fff => { // ROM
+        0x0000...0x3fff => { // ROM Bank 0
+            // FIXME handle boot ROM here
             assert(!gb.dma_active);
-            return cart.load_rom_u8(gb.cart, @intCast(address)); // FIXME the switch prong should give us a u15 capture ideally
+            return cart.load_rom_u8_bank0(gb.cart, @intCast(address));
+        },
+        0x4000...0x7fff => { // ROM Bank X
+            assert(!gb.dma_active);
+            return cart.load_rom_u8_bankX(gb.cart, @truncate(address));
         },
         0x8000...0x9fff => { // VRAM
             assert(!gb.dma_active);

@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const MaxROMByteSize = 8 * 1024 * 1024;
+pub const ROMBankSizeBytes = 16 * 1024;
+pub const RAMBankSizeBytes = 8 * 1024;
 
 pub const CartState = struct {
     rom: []const u8, // Borrowed from create_cart_state
@@ -14,10 +16,11 @@ pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u
     const cart_header = extract_header_from_rom(cart_rom_bytes);
 
     const rom_bank_count = get_rom_bank_count_from_header(cart_header);
-    assert(cart_rom_bytes.len == @as(usize, rom_bank_count) * 16 * 1024);
+    const rom_size_bytes = @as(usize, rom_bank_count) * ROMBankSizeBytes;
+    assert(cart_rom_bytes.len == rom_size_bytes);
 
     const ram_bank_count = get_ram_bank_count_from_header(cart_header);
-    const ram_size_bytes = @as(usize, ram_bank_count) * 8 * 1024;
+    const ram_size_bytes = @as(usize, ram_bank_count) * RAMBankSizeBytes;
 
     const properties = get_cart_properties(cart_header.cart_type);
     assert(properties.has_ram == (ram_bank_count != 0));
@@ -26,7 +29,7 @@ pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u
         .rom = cart_rom_bytes,
         .rom_bank_count = rom_bank_count,
         .ram_bank_count = ram_bank_count,
-        .mbc_state = try create_mbc_state(allocator, properties, ram_size_bytes),
+        .mbc_state = try create_mbc_state(allocator, properties, ram_size_bytes, rom_size_bytes),
     };
 }
 
@@ -48,10 +51,15 @@ const MBC_State = union(MBCType) {
 
 // Max 2 MiB ROM = 128 banks + optional Max 32 KiB external banked RAM
 const MBC1_State = struct {
-    current_rom_bank: u8 = 1,
+    current_rom_bank: u5 = 1,
+    current_ram_bank: u2 = 0,
+    rom_address_mask: u21,
     ram: []u8,
     ram_enable: bool = false,
-    current_ram_bank: u8 = 0,
+    banking_mode: enum(u1) {
+        Simple = 0,
+        Advanced = 1,
+    } = .Simple,
 };
 
 // Max 256 kiB ROM = 16 banks + 512x4 bits internal RAM
@@ -61,7 +69,7 @@ const MBC2_State = struct {
     nibble_ram: []u4,
 };
 
-fn create_mbc_state(allocator: std.mem.Allocator, properties: CartridgeProperties, ram_size_bytes: usize) !MBC_State {
+fn create_mbc_state(allocator: std.mem.Allocator, properties: CartridgeProperties, ram_size_bytes: usize, rom_size_bytes: usize) !MBC_State {
     switch (properties.mbc_type) {
         .ROMOnly => {
             return .{ .ROMOnly = undefined };
@@ -71,6 +79,7 @@ fn create_mbc_state(allocator: std.mem.Allocator, properties: CartridgePropertie
             errdefer allocator.free(ram);
 
             return .{ .MBC1 = MBC1_State{
+                .rom_address_mask = @intCast(rom_size_bytes - 1),
                 .ram = ram,
             } };
         },
@@ -97,26 +106,31 @@ fn destroy_mbc_state(allocator: std.mem.Allocator, mbc_state: MBC_State) void {
     }
 }
 
-pub fn load_rom_u8(cart: *const CartState, address: u15) u8 {
-    switch (address) {
-        0x0000...0x3fff => { // ROM bank 0
-            // FIXME handle boot ROM here
+pub fn load_rom_u8_bank0(cart: *const CartState, address: u14) u8 {
+    switch (cart.mbc_state) {
+        .ROMOnly, .MBC2 => {
             return cart.rom[address];
         },
-        0x4000...0x7fff => { // ROM bank X
-            switch (cart.mbc_state) {
-                .ROMOnly => {
-                    return cart.rom[address];
-                },
-                .MBC1 => |mbc1| {
-                    const banked_address = @as(u32, address) + @as(u32, mbc1.current_rom_bank - 1) * 0x4000;
-                    return cart.rom[banked_address];
-                },
-                .MBC2 => |mbc2| {
-                    const banked_address = @as(u32, address) + @as(u32, mbc2.current_rom_bank - 1) * 0x4000; // FIXME
-                    return cart.rom[banked_address];
-                },
-            }
+        .MBC1 => |mbc1| {
+            const rom_address = get_mbc1_rom_address(address, mbc1, 0);
+            return cart.rom[rom_address];
+        },
+    }
+}
+
+// NOTE: address starts at zero
+pub fn load_rom_u8_bankX(cart: *const CartState, address: u14) u8 {
+    switch (cart.mbc_state) {
+        .ROMOnly => {
+            return cart.rom[@as(u15, address) + ROMBankSizeBytes];
+        },
+        .MBC1 => |mbc1| {
+            const rom_address = get_mbc1_rom_address(address, mbc1, mbc1.current_rom_bank);
+            return cart.rom[rom_address];
+        },
+        .MBC2 => |mbc2| {
+            const banked_address = @as(u21, address) + @as(u21, mbc2.current_rom_bank) * ROMBankSizeBytes; // FIXME
+            return cart.rom[banked_address];
         },
     }
 }
@@ -130,15 +144,21 @@ pub fn store_rom_u8(cart: *CartState, address: u15, value: u8) void {
             assert(address == 0x2000);
         },
         .MBC1 => |*mbc1| switch (address) {
-            0x0000...0x1fff => {
-                assert(cart.ram_bank_count != 0);
+            0x0000...0x1fff => { // RAM Enable
                 mbc1.ram_enable = @as(u4, @truncate(value)) == 0xa;
             },
-            0x2000...0x3fff => { // Write ROM Bank number
-                const bank_number: u5 = @truncate(@max(value, 1)); // FIXME Modulo
+            0x2000...0x3fff => { // ROM Bank number
+                const bank_number: u5 = @truncate(@max(value, 1));
                 mbc1.current_rom_bank = bank_number;
             },
-            0x4000...0x7fff => {},
+            0x4000...0x5fff => { // RAM Bank number
+                const bank_number: u2 = @truncate(value);
+                mbc1.current_ram_bank = bank_number;
+            },
+            0x6000...0x7fff => { // Banking mode
+                const mode: u1 = @truncate(value);
+                mbc1.banking_mode = @enumFromInt(mode);
+            },
         },
         .MBC2 => |*mbc2| switch (address) {
             0x0000...0x3fff => {
@@ -161,10 +181,17 @@ pub fn load_external_ram_u8(cart: *const CartState, address: u13) u8 {
     switch (cart.mbc_state) {
         .ROMOnly => unreachable,
         .MBC1 => |mbc1| {
-            assert(cart.ram_bank_count != 0 and mbc1.ram_enable);
-            return mbc1.ram[address]; // FIXME Banks
+            if (mbc1.ram_enable) {
+                assert(cart.ram_bank_count != 0);
+
+                const ram_address = get_mbc1_ram_address(address, mbc1);
+                return mbc1.ram[ram_address];
+            } else {
+                return 0xff;
+            }
         },
         .MBC2 => |mbc2| {
+            assert(mbc2.ram_enable);
             return mbc2.nibble_ram[address];
         },
     }
@@ -174,13 +201,52 @@ pub fn store_external_ram_u8(cart: *CartState, address: u13, value: u8) void {
     switch (cart.mbc_state) {
         .ROMOnly => unreachable,
         .MBC1 => |mbc1| {
-            assert(cart.ram_bank_count != 0 and mbc1.ram_enable);
-            mbc1.ram[address] = value; // FIXME Banks
+            if (mbc1.ram_enable) {
+                assert(cart.ram_bank_count != 0);
+
+                const ram_address = get_mbc1_ram_address(address, mbc1);
+                mbc1.ram[ram_address] = value;
+            }
         },
         .MBC2 => |mbc2| {
+            assert(mbc2.ram_enable);
             mbc2.nibble_ram[address] = @truncate(value); // FIXME Bounds
         },
     }
+}
+
+fn get_mbc1_rom_address(address: u14, mbc1: MBC1_State, bank_index: u5) u21 {
+    // https://gbdev.io/pandocs/MBC1.html#addressing-diagrams
+    const MBC1ROMAddressHelper = packed struct {
+        base_addr: u14,
+        bank_index: u5,
+        extended: u2,
+    };
+
+    const rom_address_helper = MBC1ROMAddressHelper{
+        .base_addr = address,
+        .bank_index = bank_index,
+        .extended = if (mbc1.banking_mode == .Advanced) mbc1.current_ram_bank else 0,
+    };
+
+    const rom_address: u21 = @bitCast(rom_address_helper);
+    return rom_address & mbc1.rom_address_mask;
+}
+
+fn get_mbc1_ram_address(address: u13, mbc1: MBC1_State) u15 {
+    // https://gbdev.io/pandocs/MBC1.html#addressing-diagrams
+    const MBC1RAMAddressHelper = packed struct {
+        base_addr: u13,
+        bank_index: u2,
+    };
+
+    const ram_address_helper = MBC1RAMAddressHelper{
+        .base_addr = address,
+        .bank_index = mbc1.current_ram_bank,
+    };
+
+    const ram_address: u15 = @bitCast(ram_address_helper);
+    return ram_address; // FIXME wrap?
 }
 
 pub const CartridgeProperties = struct {
@@ -338,70 +404,3 @@ const NintendoLogoBitmap = [LogoSizeBytes]u8{
     0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
     0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
 };
-
-// pub const NewLicenseeCode = enum(u8) {
-//     None                                                  0x00
-//     Nintendo_Research_Development_1                       0x01
-//     Capcom                                                0x08
-//     Electronic_Arts                                       0x13
-//     Hudson_Soft                                           0x18
-//     B_AI                                                  0x19
-//     KSS                                                   0x20
-//     Planning_Office_WADA                                  0x22
-//     PCM_Complete                                          0x24
-//     San_X                                                 0x25
-//     Kemco                                                 0x28
-//     SETA Corporation                                      0x29
-//     Viacom                                                0x30
-//     Nintendo                                              0x31
-//     Bandai                                                0x32
-//     Ocean_Software_Acclaim_Entertainment                  0x33
-//     Konami                                                0x34
-//     HectorSoft                                            0x35
-//     Taito                                                 0x37
-//     Hudson_Soft                                           0x38
-//     Banpresto                                             0x39
-//     Ubi_Soft1                                             0x41
-//     Atlus                                                 0x42
-//     Malibu_Interactive                                    0x44
-//     Angel                                                 0x46
-//     Bullet_Proof_Software2                                0x47
-//     Irem                                                  0x49
-//     Absolute                                              0x50
-//     Acclaim_Entertainment                                 0x51
-//     Activision                                            0x52
-//     Sammy_USA_Corporation                                 0x53
-//     Konami                                                0x54
-//     Hi_Tech_Expressions                                   0x55
-//     LJN                                                   0x56
-//     Matchbox                                              0x57
-//     Mattel                                                0x58
-//     Milton_Bradley_Company                                0x59
-//     Titus_Interactive                                     0x60
-//     Virgin_Games_Ltd_3                                    0x61
-//     Lucasfilm_ Games4                                     0x64
-//     Ocean_Software                                        0x67
-//     Electronic_Arts                                       0x69
-//     Infogrames5                                           0x70
-//     Interplay_Entertainment                               0x71
-//     Broderbund                                            0x72
-//     Sculptured_Software6                                  0x73
-//     The_Sales_Curve_Limited7                              0x75
-//     THQ                                                   0x78
-//     Accolade                                              0x79
-//     Misawa_Entertainment                                  0x80
-//     lozc                                                  0x83
-//     Tokuma_Shoten                                         0x86
-//     Tsukuda_Original                                      0x87
-//     Chunsoft_Co_8                                         0x91
-//     Video_System                                          0x92
-//     Ocean_Software_Acclaim_Entertainment                  0x93
-//     Varie                                                 0x95
-//     Yonezawa_s_pal                                        0x96
-//     Kaneko                                                0x97
-//     Pack_In_Video                                         0x99
-//     Bottom_Up                                             0x9H
-//     Konami_Yu_Gi_Oh                                       0xA4
-//     MTO                                                   0xBL
-//     Kodansha                                              0xDK
-// };
