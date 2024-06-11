@@ -27,8 +27,8 @@ fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
     }
     errdefer c.SDL_Quit();
 
-    const window_width = ppu.ScreenWidth;
-    const window_height = ppu.ScreenHeight;
+    const window_width = 4 * ppu.ScreenWidth;
+    const window_height = 4 * ppu.ScreenHeight;
 
     const window = c.SDL_CreateWindow("Gameboy Emu", c.SDL_WINDOWPOS_UNDEFINED, c.SDL_WINDOWPOS_UNDEFINED, @intCast(window_width), @intCast(window_height), c.SDL_WINDOW_SHOWN) orelse {
         c.SDL_Log("Unable to create window: %s", c.SDL_GetError());
