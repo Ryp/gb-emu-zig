@@ -77,20 +77,13 @@ fn consume_pending_cycles(gb: *GBState) void {
 
     gb.clock.t_cycles += gb.pending_t_cycles;
 
+    // FIXME assumption here that we won't miss falling edges
+    // aka pending cycles stays small enough
+    const clock_falling_edge_mask = prev_clock_t_cycles & ~gb.clock.t_cycles;
+
     if (gb.pending_t_cycles > 0) {
         if (gb.mmio.TAC.enable_timer) {
-            // https://gbdev.io/pandocs/Timer_Obscure_Behaviour.html#relation-between-timer-and-divider-register
-            const falling_edge_mask = prev_clock_t_cycles & ~gb.clock.t_cycles;
-            const overflow: u1 = @truncate(switch (gb.mmio.TAC.clock_mode) {
-                .Every4MCycles => falling_edge_mask >> 3,
-                .Every16MCycles => falling_edge_mask >> 5,
-                .Every64MCycles => falling_edge_mask >> 7,
-                .Every256MCycles => falling_edge_mask >> 9,
-            });
-
-            if (overflow == 1) {
-                increment_tima(gb);
-            }
+            step_timer(gb, clock_falling_edge_mask);
         }
 
         if (gb.dma_active) {
@@ -102,19 +95,30 @@ fn consume_pending_cycles(gb: *GBState) void {
         }
 
         if (gb.mmio.apu.NR52.enable_apu) {
-            apu.step_apu(gb, gb.pending_t_cycles);
+            // NOTE: We can probably just shift the mask by one when using double-speed mode
+            apu.step_apu(gb, gb.pending_t_cycles, clock_falling_edge_mask);
         }
     }
 
     gb.pending_t_cycles = 0; // FIXME
 }
 
-fn increment_tima(gb: *cpu.GBState) void {
-    gb.mmio.TIMA, const overflow = @addWithOverflow(gb.mmio.TIMA, 1);
+fn step_timer(gb: *cpu.GBState, clock_falling_edge_mask: u64) void {
+    // https://gbdev.io/pandocs/Timer_Obscure_Behaviour.html#relation-between-timer-and-divider-register
+    const clock_tick: u1 = @truncate(switch (gb.mmio.TAC.clock_mode) {
+        .Every4MCycles => clock_falling_edge_mask >> 3,
+        .Every16MCycles => clock_falling_edge_mask >> 5,
+        .Every64MCycles => clock_falling_edge_mask >> 7,
+        .Every256MCycles => clock_falling_edge_mask >> 9,
+    });
 
-    if (overflow == 1) {
-        gb.mmio.TIMA = gb.mmio.TMA;
-        gb.mmio.IF.requested_interrupt.flag.timer = true;
+    if (clock_tick == 1) {
+        gb.mmio.TIMA, const overflow_tima = @addWithOverflow(gb.mmio.TIMA, 1);
+
+        if (overflow_tima == 1) {
+            gb.mmio.TIMA = gb.mmio.TMA;
+            gb.mmio.IF.requested_interrupt.flag.timer = true;
+        }
     }
 }
 
@@ -951,6 +955,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
                 .DIV => return gb.clock.bits.div,
                 .TIMA, .TMA, .TAC => return mmio_bytes[offset],
+                .NR14, .NR24, .NR34, .NR44 => return mmio_bytes[offset],
                 .NR52 => return mmio_bytes[offset],
                 .LCDC, .DMA => return mmio_bytes[offset],
                 _ => return mmio_bytes[offset],
@@ -1003,6 +1008,22 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
                 .DIV => { // Write resets clock
                     gb.clock.t_cycles = 0;
+                },
+                .NR14 => {
+                    mmio_bytes[offset] = value;
+                    apu.trigger_channel1(gb, &gb.apu_state.ch1);
+                },
+                .NR24 => {
+                    mmio_bytes[offset] = value;
+                    apu.trigger_channel2(gb);
+                },
+                .NR34 => {
+                    mmio_bytes[offset] = value;
+                    apu.trigger_channel3(gb);
+                },
+                .NR44 => {
+                    mmio_bytes[offset] = value;
+                    apu.trigger_channel4(gb);
                 },
                 .NR52 => {
                     const apu_was_on = gb.mmio.apu.NR52.enable_apu;
