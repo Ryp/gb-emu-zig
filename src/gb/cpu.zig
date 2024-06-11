@@ -1,7 +1,8 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 const ppu = @import("ppu.zig");
-const sound = @import("sound.zig");
+const apu = @import("apu.zig");
 const joypad = @import("joypad.zig");
 const cart = @import("cart.zig");
 
@@ -185,10 +186,10 @@ pub const FlagRegister = packed struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(FlagRegister) == 1);
-    std.debug.assert(@offsetOf(Registers_LittleEndian, "sp") == 8);
-    std.debug.assert(@offsetOf(Registers_BigEndian, "sp") == 8);
-    std.debug.assert(@offsetOf(Registers_R16, "sp") == 8);
+    assert(@sizeOf(FlagRegister) == 1);
+    assert(@offsetOf(Registers_LittleEndian, "sp") == 8);
+    assert(@offsetOf(Registers_BigEndian, "sp") == 8);
+    assert(@offsetOf(Registers_R16, "sp") == 8);
 }
 
 pub const MMIO = packed struct {
@@ -205,7 +206,7 @@ pub const MMIO = packed struct {
     SB: u8, //= 0x01, // Serial transfer data (R/W)
     SC: u8, //= 0x02, // Serial Transfer Control (R/W)
     _unused_03: u8,
-    DIV: u8, //= 0x04, // Divider Register (R/W)
+    DIV_DO_NOT_USE: u8, //= 0x04, // Divider Register (R/W)
     TIMA: u8, //= 0x05, // Timer counter (R/W)
     TMA: u8, //= 0x06, // Timer Modulo (R/W)
     TAC: packed struct { // = 0x07, // Timer Control (R/W)
@@ -238,7 +239,7 @@ pub const MMIO = packed struct {
         },
         _unused: u3,
     },
-    sound: sound.Sound_MMIO,
+    apu: apu.MMIO,
     ppu: ppu.MMIO,
     BANK: u8, //= 0x50, // Write to disable the boot ROM mapping
     HDMA1: u8, //= 0x51, // CGB Mode Only - New DMA Source, High
@@ -358,7 +359,7 @@ pub const MMIO_Offset = enum(u8) {
     // NR44       = 0x23, // Channel 4 Counter/consecutive, Inital (R/W)
     // NR50       = 0x24, // Channel control / ON-OFF / Volume (R/W)
     // NR51       = 0x25, // Selection of Sound output terminal (R/W)
-    // NR52       = 0x26, // Sound on/off
+    NR52 = 0x26, // Audio master control
     // WAV_START  = 0x30, // Wave pattern start
     // WAV_END    = 0x3F, // Wave pattern end
     LCDC = 0x40, // LCD Control (R/W)
@@ -401,10 +402,10 @@ pub const MMIO_Offset = enum(u8) {
 };
 
 comptime {
-    std.debug.assert(@offsetOf(MMIO, "sound") == 0x10);
-    std.debug.assert(@offsetOf(MMIO, "ppu") == 0x40);
-    std.debug.assert(@offsetOf(MMIO, "PCM34") == 0x77);
-    std.debug.assert(@sizeOf(MMIO) == MMIOSizeBytes);
+    assert(@offsetOf(MMIO, "apu") == 0x10);
+    assert(@offsetOf(MMIO, "ppu") == 0x40);
+    assert(@offsetOf(MMIO, "PCM34") == 0x77);
+    assert(@sizeOf(MMIO) == MMIOSizeBytes);
 }
 
 pub const MMIOSizeBytes = 256;

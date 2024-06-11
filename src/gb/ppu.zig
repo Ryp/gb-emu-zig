@@ -147,14 +147,14 @@ fn eval_palette_raw(palette: u8, color_id: u2) u2 {
     return @intCast((palette >> (color_id * 2)) & 0b11);
 }
 
-pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
+pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
 
     const io_ppu = &gb.mmio.ppu;
-    var cycles_remaining = cycle_count;
+    var t_cycles_remaining = t_cycle_count;
 
-    while (cycles_remaining > 0) {
+    while (t_cycles_remaining > 0) {
         // Update PPU Mode and get current interrupt line state
         var interrupt_line = false;
         const previous_ppu_mode = io_ppu.STAT.ppu_mode;
@@ -206,7 +206,7 @@ pub fn step_ppu(gb: *cpu.GBState, cycle_count: u8) void {
         }
 
         // Update variables for the next iteration
-        cycles_remaining -= 1; // FIXME
+        t_cycles_remaining -= 1; // FIXME
         gb.ppu_h_cycles += 1;
 
         if (gb.ppu_h_cycles == ScanLineDurationCycles) {

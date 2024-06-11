@@ -11,9 +11,10 @@ const instructions = @import("instructions.zig");
 const R8 = instructions.R8;
 const R16 = instructions.R16;
 
-const ppu = @import("ppu.zig");
-const joypad = @import("joypad.zig");
 const cart = @import("cart.zig");
+const ppu = @import("ppu.zig");
+const apu = @import("apu.zig");
+const joypad = @import("joypad.zig");
 
 const enable_debug = false;
 
@@ -100,7 +101,9 @@ fn consume_pending_cycles(gb: *GBState) void {
             ppu.step_ppu(gb, gb.pending_t_cycles);
         }
 
-        gb.mmio.DIV = gb.clock.bits.div;
+        if (gb.mmio.apu.NR52.enable_apu) {
+            apu.step_apu(gb, gb.pending_t_cycles);
+        }
     }
 
     gb.pending_t_cycles = 0; // FIXME
@@ -115,7 +118,7 @@ fn increment_tima(gb: *cpu.GBState) void {
     }
 }
 
-fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
+fn step_dma(gb: *cpu.GBState, t_cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
 
@@ -123,7 +126,7 @@ fn step_dma(gb: *cpu.GBState, cycle_count: u8) void {
     const oam_sprites_mem: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
 
     // Copy 1 byte per M-cycle
-    const byte_count_to_copy_max = cycle_count / 4;
+    const byte_count_to_copy_max = t_cycle_count / 4;
     const copy_offset_begin = gb.dma_current_offset;
     const copy_offset_end = @min(gb.dma_current_offset + byte_count_to_copy_max, cpu.DMACopyByteCount);
 
@@ -946,7 +949,9 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
 
             switch (typed_offset) {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
-                .DIV, .TIMA, .TMA, .TAC => return mmio_bytes[offset],
+                .DIV => return gb.clock.bits.div,
+                .TIMA, .TMA, .TAC => return mmio_bytes[offset],
+                .NR52 => return mmio_bytes[offset],
                 .LCDC, .DMA => return mmio_bytes[offset],
                 _ => return mmio_bytes[offset],
             }
@@ -997,8 +1002,16 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 // We could probably just write the full byte and not worry
                 .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
                 .DIV => { // Write resets clock
-                    gb.mmio.DIV = 0;
                     gb.clock.t_cycles = 0;
+                },
+                .NR52 => {
+                    const apu_was_on = gb.mmio.apu.NR52.enable_apu;
+                    mmio_bytes[offset] = value;
+                    const apu_is_on = gb.mmio.apu.NR52.enable_apu;
+
+                    if (!apu_was_on and apu_is_on) {
+                        apu.reset_apu(gb);
+                    }
                 },
                 .LCDC => {
                     const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
