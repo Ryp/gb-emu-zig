@@ -11,11 +11,13 @@ pub const APUState = struct {
 };
 
 const CH1State = struct {
+    period: PeriodState = .{},
     envelope: EnvelopeState = .{},
     period_sweep_counter: u3 = 0,
 };
 
 const CH2State = struct {
+    period: PeriodState = .{},
     envelope: EnvelopeState = .{},
 };
 
@@ -43,6 +45,7 @@ pub fn step_apu(gb: *cpu.GBState, t_cycle_count: u8, clock_falling_edge_mask: u6
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
     const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (5 + mmio.NR43.clock_shift)); // FIXME
+    const tick_period_rate: u1 = @truncate(clock_falling_edge_mask >> 2); // FIXME 1MHz
 
     // FIXME Ticks happen when channel aren't triggered?
 
@@ -50,6 +53,11 @@ pub fn step_apu(gb: *cpu.GBState, t_cycle_count: u8, clock_falling_edge_mask: u6
         tick_envelope_sweep(&gb.apu_state.ch1.envelope, mmio.NR12.envelope);
         tick_envelope_sweep(&gb.apu_state.ch2.envelope, mmio.NR22.envelope);
         tick_envelope_sweep(&gb.apu_state.ch4.envelope, mmio.NR42.envelope);
+    }
+
+    if (tick_period_rate == 1) {
+        tick_period_counter(&gb.apu_state.ch1.period, mmio.NR13_NR14);
+        tick_period_counter(&gb.apu_state.ch2.period, mmio.NR23_NR24);
     }
 
     if (tick_128hz == 1) {
@@ -65,6 +73,8 @@ pub fn step_apu(gb: *cpu.GBState, t_cycle_count: u8, clock_falling_edge_mask: u6
     }
 
     // FIXME compute sample values
+    const sample_ch1 = DutyCycles[mmio.NR11.wave_duty][gb.apu_state.ch1.period.duty_index];
+    _ = sample_ch1;
     gb.apu_state.ch4.sample = if (gb.apu_state.ch4.lfsr.bits.bit0 == 1) gb.apu_state.ch4.envelope.volume else 0;
 
     for (0..t_cycle_count) |_| // FIXME 4MHz audio!
@@ -162,18 +172,33 @@ fn tick_length_timers(mmio: *MMIO) void {
     }
 }
 
+const PeriodState = struct {
+    counter: u11 = 0,
+    duty_index: u3 = 0,
+};
+
+// NOTE: should be updated before period sweep
+fn tick_period_counter(state: *PeriodState, mmio_frequency: MMIO_ChannelControlAndFrequency) void {
+    state.counter, const overflow = @addWithOverflow(state.counter, 1);
+
+    if (overflow == 1) {
+        state.counter = mmio_frequency.period;
+        state.duty_index +%= 1;
+    }
+}
+
 const EnvelopeState = struct {
     counter: u3 = 0,
     volume: u4 = 0,
 };
 
-fn tick_envelope_sweep(state: *EnvelopeState, envelope: MMIO_EnvelopeProperties) void {
-    if (envelope.sweep_pace != 0) // Envelope is enabled
+fn tick_envelope_sweep(state: *EnvelopeState, mmio_envelope: MMIO_EnvelopeProperties) void {
+    if (mmio_envelope.sweep_pace != 0) // Envelope is enabled
     {
         state.counter, const overflow = @subWithOverflow(state.counter, 1);
 
         if (overflow == 1) {
-            switch (envelope.envelope_direction) {
+            switch (mmio_envelope.envelope_direction) {
                 // FIXME
                 .DecreaseVolume => {
                     state.volume -|= 1;
@@ -182,7 +207,7 @@ fn tick_envelope_sweep(state: *EnvelopeState, envelope: MMIO_EnvelopeProperties)
                     state.volume +|= 1;
                 },
             }
-            state.counter = envelope.sweep_pace - 1;
+            state.counter = mmio_envelope.sweep_pace - 1;
         }
     }
 }
@@ -281,7 +306,7 @@ fn mix_channel_samples(mmio: *const MMIO, channel_samples_vec: f32_4) StereoSamp
     return .{ mix_r, mix_l };
 }
 
-fn convert_per_channel_bool_to_vec(s: PerChannelBool) @Vector(4, bool) {
+fn convert_per_channel_bool_to_vec(s: MMIO_PerChannelBool) @Vector(4, bool) {
     return .{ s.channel1, s.channel2, s.channel3, s.channel4 };
 }
 
@@ -309,14 +334,14 @@ pub const MMIO = packed struct {
         sweep_pace: u3,
         _unused: u1,
     },
-    NR11: PulseLengthAndDuty, // 0x11 Channel 1 Sound length/Wave pattern duty (R/W)
-    NR12: ChannelEnvelope, // 0x12 Channel 1 Volume Envelope (R/W)
-    NR13_NR14: ChannelControlAndFrequency, // 0x13 0x14 Channel 1
+    NR11: MMIO_PulseLengthAndDuty, // 0x11 Channel 1 Sound length/Wave pattern duty (R/W)
+    NR12: MMIO_ChannelEnvelope, // 0x12 Channel 1 Volume Envelope (R/W)
+    NR13_NR14: MMIO_ChannelControlAndFrequency, // 0x13 0x14 Channel 1
     // Channel 2
     NR20: u8, // Unused
-    NR21: PulseLengthAndDuty, // 0x16 Channel 2 Sound Length/Wave Pattern Duty (R/W)
-    NR22: ChannelEnvelope, // 0x17 Channel 2 Volume Envelope (R/W)
-    NR23_NR24: ChannelControlAndFrequency, // 0x18 0x19 Channel 2
+    NR21: MMIO_PulseLengthAndDuty, // 0x16 Channel 2 Sound Length/Wave Pattern Duty (R/W)
+    NR22: MMIO_ChannelEnvelope, // 0x17 Channel 2 Volume Envelope (R/W)
+    NR23_NR24: MMIO_ChannelControlAndFrequency, // 0x18 0x19 Channel 2
     // Channel 3
     NR30: packed struct { // 0x1A Channel 3 Sound on/off (R/W)
         _unused: u7,
@@ -335,14 +360,14 @@ pub const MMIO = packed struct {
         },
         _unused1: u1,
     },
-    NR33_NR34: ChannelControlAndFrequency, // 0x1E 0x1D Channel 3
+    NR33_NR34: MMIO_ChannelControlAndFrequency, // 0x1E 0x1D Channel 3
     // Channel 4
     NR40: u8, // Unused
     NR41: packed struct { // 0x20 Channel 4 Sound Length (R/W)
         length_timer: u6,
         _unused: u2,
     },
-    NR42: ChannelEnvelope, // 0x21 Channel 4 Volume Envelope (R/W)
+    NR42: MMIO_ChannelEnvelope, // 0x21 Channel 4 Volume Envelope (R/W)
     NR43: packed struct { // 0x22 Channel 4 Polynomial Counter (R/W)
         clock_divider: u3,
         lfsr_width: enum(u1) {
@@ -364,11 +389,11 @@ pub const MMIO = packed struct {
         enable_vin_l: bool,
     },
     NR51: packed struct { // 0x25 Selection of Sound output terminal (R/W)
-        enable_r: PerChannelBool,
-        enable_l: PerChannelBool,
+        enable_r: MMIO_PerChannelBool,
+        enable_l: MMIO_PerChannelBool,
     },
     NR52: packed struct { // 0x26 Audio master control
-        enable: PerChannelBool,
+        enable: MMIO_PerChannelBool,
         _unused: u3,
         enable_apu: bool,
     },
@@ -388,19 +413,19 @@ pub const MMIO = packed struct {
     WAV_PATTERN_3: u32,
 };
 
-const PulseLengthAndDuty = packed struct {
+const MMIO_PulseLengthAndDuty = packed struct {
     length_timer: u6,
     wave_duty: u2,
 };
 
-const ChannelControlAndFrequency = packed struct {
+const MMIO_ChannelControlAndFrequency = packed struct {
     period: u11,
     _unused: u3,
     enable_length_timer: bool,
     trigger: bool,
 };
 
-const ChannelEnvelope = packed union {
+const MMIO_ChannelEnvelope = packed union {
     envelope: MMIO_EnvelopeProperties,
     enable_dac: packed struct {
         _unused: u3,
@@ -417,7 +442,7 @@ const MMIO_EnvelopeProperties = packed struct {
     initial_volume: u4,
 };
 
-const PerChannelBool = packed struct {
+const MMIO_PerChannelBool = packed struct {
     channel1: bool,
     channel2: bool,
     channel3: bool,
@@ -427,3 +452,10 @@ const PerChannelBool = packed struct {
 comptime {
     assert(@sizeOf(MMIO) == 0x30);
 }
+
+const DutyCycles: [4][8]u1 = .{
+    .{ 1, 1, 1, 1, 1, 1, 1, 0 }, // 12.5%
+    .{ 0, 1, 1, 1, 1, 1, 1, 0 }, // 25%
+    .{ 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
+    .{ 1, 0, 0, 0, 0, 0, 0, 1 }, // 75%
+};
