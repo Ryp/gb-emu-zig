@@ -96,7 +96,8 @@ fn consume_pending_cycles(gb: *GBState) void {
 
         if (gb.mmio.apu.NR52.enable_apu) {
             // NOTE: We can probably just shift the mask by one when using double-speed mode
-            apu.step_apu(gb, gb.pending_t_cycles, clock_falling_edge_mask);
+            apu.step_apu(&gb.apu_state, &gb.mmio.apu, clock_falling_edge_mask);
+            _ = apu.sample_channels(&gb.apu_state, &gb.mmio.apu);
         }
     }
 
@@ -1011,19 +1012,19 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 },
                 .NR14 => {
                     mmio_bytes[offset] = value;
-                    apu.trigger_channel1(gb, &gb.apu_state.ch1);
+                    apu.trigger_channel1(&gb.apu_state.ch1, &gb.mmio.apu);
                 },
                 .NR24 => {
                     mmio_bytes[offset] = value;
-                    apu.trigger_channel2(gb);
+                    apu.trigger_channel2(&gb.apu_state.ch2, &gb.mmio.apu);
                 },
                 .NR34 => {
                     mmio_bytes[offset] = value;
-                    apu.trigger_channel3(gb);
+                    apu.trigger_channel3(&gb.apu_state.ch3, &gb.mmio.apu);
                 },
                 .NR44 => {
                     mmio_bytes[offset] = value;
-                    apu.trigger_channel4(gb);
+                    apu.trigger_channel4(&gb.apu_state.ch4, &gb.mmio.apu);
                 },
                 .NR52 => {
                     const apu_was_on = gb.mmio.apu.NR52.enable_apu;
@@ -1031,7 +1032,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     const apu_is_on = gb.mmio.apu.NR52.enable_apu;
 
                     if (!apu_was_on and apu_is_on) {
-                        apu.reset_apu(gb);
+                        apu.reset_apu(&gb.apu_state);
                     }
                 },
                 .LCDC => {
