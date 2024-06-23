@@ -113,8 +113,9 @@ fn consume_pending_cycles(gb: *GBState) void {
 
         var sample: apu.StereoSample = undefined;
         if (gb.mmio.apu.NR52.enable_apu) {
+            const pending_m_cycles = gb.pending_t_cycles / 4; // FIXME Works because we're always a multiple of 4
             // NOTE: We can probably just shift the mask by one when using double-speed mode
-            apu.step_apu(&gb.apu_state, &gb.mmio.apu, clock_falling_edge_mask);
+            apu.step_apu(&gb.apu_state, &gb.mmio.apu, clock_falling_edge_mask, pending_m_cycles);
 
             sample = apu.sample_channels(&gb.apu_state, &gb.mmio.apu);
         } else {

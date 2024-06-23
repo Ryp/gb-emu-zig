@@ -102,34 +102,35 @@ pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
     ch4.enabled = ch4.enabled and mmio.NR42.enable_dac.mask != 0;
 }
 
-pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64) void {
+// This function assumes that all ticks are only going to happen once per call.
+// If you call this function after too many cycles passed, you will miss tick events
+// and the APU will most likely output the wrong sound.
+pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cycles_count: u8) void {
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
     const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (5 + mmio.NR43.clock_shift)); // FIXME
-    const tick_period_rate: u1 = @truncate(clock_falling_edge_mask >> 2); // FIXME 1MHz
 
     if (tick_64hz == 1) {
-        tick_envelope_sweep(&apu.ch1.envelope, apu.ch1.enabled, mmio.NR12.envelope);
-        tick_envelope_sweep(&apu.ch2.envelope, apu.ch2.enabled, mmio.NR22.envelope);
-        tick_envelope_sweep(&apu.ch4.envelope, apu.ch4.enabled, mmio.NR42.envelope);
-    }
-
-    if (tick_period_rate == 1) {
-        tick_period_counter(&apu.ch1.period, apu.ch1.enabled, mmio.NR13_NR14);
-        tick_period_counter(&apu.ch2.period, apu.ch2.enabled, mmio.NR23_NR24);
+        tick_envelope_sweep(apu.ch1.enabled, &apu.ch1.envelope, mmio.NR12.envelope);
+        tick_envelope_sweep(apu.ch2.enabled, &apu.ch2.envelope, mmio.NR22.envelope);
+        tick_envelope_sweep(apu.ch4.enabled, &apu.ch4.envelope, mmio.NR42.envelope);
     }
 
     if (tick_128hz == 1) {
         tick_period_sweep(&apu.ch1, mmio);
     }
 
+    // The tick rate is too high so we count M-cycles manually
+    tick_period_counter(apu.ch1.enabled, &apu.ch1.period, mmio.NR13_NR14, m_cycles_count);
+    tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
+
     if (tick_256hz == 1) {
         tick_length_timers(apu, mmio);
     }
 
     if (tick_lfsr_rate == 1) {
-        tick_lfsr(&apu.ch4.lfsr, apu.ch4.enabled, mmio);
+        tick_lfsr(apu.ch4.enabled, &apu.ch4.lfsr, mmio);
     }
 }
 
@@ -210,13 +211,15 @@ const PeriodState = struct {
 };
 
 // NOTE: should be updated before period sweep
-fn tick_period_counter(state: *PeriodState, channel_enabled: bool, mmio_frequency: MMIO_ChannelControlAndFrequency) void {
-    if (channel_enabled) {
-        state.counter, const overflow = @addWithOverflow(state.counter, 1);
+fn tick_period_counter(channel_enabled: bool, state: *PeriodState, mmio_frequency: MMIO_ChannelControlAndFrequency, m_cycles_count: u8) void {
+    for (0..m_cycles_count) |_| {
+        if (channel_enabled) {
+            state.counter, const overflow = @addWithOverflow(state.counter, 1);
 
-        if (overflow == 1) {
-            state.counter = mmio_frequency.period;
-            state.duty_index +%= 1;
+            if (overflow == 1) {
+                state.counter = mmio_frequency.period;
+                state.duty_index +%= 1;
+            }
         }
     }
 }
@@ -226,7 +229,7 @@ const EnvelopeState = struct {
     volume: u4 = 0,
 };
 
-fn tick_envelope_sweep(state: *EnvelopeState, channel_enabled: bool, mmio_envelope: MMIO_EnvelopeProperties) void {
+fn tick_envelope_sweep(channel_enabled: bool, state: *EnvelopeState, mmio_envelope: MMIO_EnvelopeProperties) void {
     if (channel_enabled and mmio_envelope.sweep_pace != 0) // Envelope is enabled
     {
         state.counter, const overflow = @subWithOverflow(state.counter, 1);
@@ -291,7 +294,7 @@ const LFSR = packed union {
     },
 };
 
-fn tick_lfsr(lfsr: *LFSR, channel_enabled: bool, mmio: *const MMIO) void {
+fn tick_lfsr(channel_enabled: bool, lfsr: *LFSR, mmio: *const MMIO) void {
     if (channel_enabled) {
         const new_bit = ~(lfsr.bits.bit0 ^ lfsr.bits.bit1);
 
