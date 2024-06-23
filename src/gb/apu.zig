@@ -105,6 +105,7 @@ pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
 // This function assumes that all ticks are only going to happen once per call.
 // If you call this function after too many cycles passed, you will miss tick events
 // and the APU will most likely output the wrong sound.
+// NOTE: The calling order between tick update functions is important here since there's some data dependencies.
 pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cycles_count: u8) void {
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
@@ -121,10 +122,6 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
         tick_period_sweep(&apu.ch1, mmio);
     }
 
-    // The tick rate is too high so we count M-cycles manually
-    tick_period_counter(apu.ch1.enabled, &apu.ch1.period, mmio.NR13_NR14, m_cycles_count);
-    tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
-
     if (tick_256hz == 1) {
         tick_length_timers(apu, mmio);
     }
@@ -132,13 +129,13 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     if (tick_lfsr_rate == 1) {
         tick_lfsr(apu.ch4.enabled, &apu.ch4.lfsr, mmio);
     }
+
+    // The tick rate is too high so we count M-cycles manually
+    tick_period_counter(apu.ch1.enabled, &apu.ch1.period, mmio.NR13_NR14, m_cycles_count);
+    tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
 }
 
 pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
-    // FIXME compute sample values
-    const sample_ch4 = if (apu.ch4.lfsr.bits.bit0 == 1) apu.ch4.envelope.volume else @as(u4, 0);
-    _ = sample_ch4;
-
     var channel_samples: [4]u4 = undefined;
     var channel_dac_enabled: [4]bool = undefined;
 
@@ -150,7 +147,7 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
     channel_samples[0] = generate_channel1_sample(apu.ch1, mmio);
     channel_samples[1] = generate_channel2_sample(apu.ch2, mmio);
     channel_samples[2] = ChannelOffSample; // FIXME
-    channel_samples[3] = ChannelOffSample; // FIXME
+    channel_samples[3] = generate_channel4_sample(apu.ch4, mmio); // FIXME
 
     var channel_samples_f32: [4]f32 = undefined;
 
@@ -210,7 +207,7 @@ const PeriodState = struct {
     duty_index: u3 = 0,
 };
 
-// NOTE: should be updated before period sweep
+// NOTE: should be updated after period sweep
 fn tick_period_counter(channel_enabled: bool, state: *PeriodState, mmio_frequency: MMIO_ChannelControlAndFrequency, m_cycles_count: u8) void {
     for (0..m_cycles_count) |_| {
         if (channel_enabled) {
@@ -315,10 +312,7 @@ fn generate_channel1_sample(ch1: CH1State, mmio: *const MMIO) u4 {
         return ChannelOffSample;
     }
 
-    // FIXME
-    const sample: u4 = DutyCycles[mmio.NR11.wave_duty][ch1.period.duty_index] * ch1.envelope.volume;
-
-    return sample;
+    return DutyCycles[mmio.NR11.wave_duty][ch1.period.duty_index] * ch1.envelope.volume;
 }
 
 fn generate_channel2_sample(ch2: CH2State, mmio: *const MMIO) u4 {
@@ -328,10 +322,17 @@ fn generate_channel2_sample(ch2: CH2State, mmio: *const MMIO) u4 {
         return ChannelOffSample;
     }
 
-    // FIXME
-    const sample: u4 = DutyCycles[mmio.NR21.wave_duty][ch2.period.duty_index] * ch2.envelope.volume;
+    return DutyCycles[mmio.NR21.wave_duty][ch2.period.duty_index] * ch2.envelope.volume;
+}
 
-    return sample;
+fn generate_channel4_sample(ch4: CH4State, mmio: *const MMIO) u4 {
+    const channel_active = ch4.enabled and (!mmio.NR44.enable_length_timer or mmio.NR41.length_timer > 0);
+
+    if (!channel_active) {
+        return ChannelOffSample;
+    }
+
+    return ch4.lfsr.bits.bit0 * ch4.envelope.volume;
 }
 
 fn convert_generated_sample_to_float(sample: u4, dac_enabled: bool) f32 {
