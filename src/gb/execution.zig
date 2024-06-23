@@ -18,6 +18,23 @@ const joypad = @import("joypad.zig");
 
 const enable_debug = false;
 
+pub fn write_sample(gb: *GBState, sample: f32) void {
+    gb.audio_ring_buffer[gb.rb_write] = sample;
+    gb.rb_write = (gb.rb_write + 1) % gb.audio_ring_buffer.len;
+}
+
+pub fn read_audio(gb: *GBState) []f32 {
+    if (gb.rb_read > gb.rb_write) {
+        const sample_slice = gb.audio_ring_buffer[gb.rb_read..];
+        gb.rb_read = 0;
+        return sample_slice;
+    } else {
+        const sample_slice = gb.audio_ring_buffer[gb.rb_read..gb.rb_write];
+        gb.rb_read = gb.rb_write;
+        return sample_slice;
+    }
+}
+
 pub fn step(gb: *GBState) !void {
     const scope = tracy.trace(@src());
     defer scope.end();
@@ -94,14 +111,37 @@ fn consume_pending_cycles(gb: *GBState) void {
             ppu.step_ppu(gb, gb.pending_t_cycles);
         }
 
+        var sample: apu.StereoSample = undefined;
         if (gb.mmio.apu.NR52.enable_apu) {
             // NOTE: We can probably just shift the mask by one when using double-speed mode
             apu.step_apu(&gb.apu_state, &gb.mmio.apu, clock_falling_edge_mask);
-            _ = apu.sample_channels(&gb.apu_state, &gb.mmio.apu);
+
+            sample = apu.sample_channels(&gb.apu_state, &gb.mmio.apu);
+        } else {
+            sample = apu.StereoSample{ 0, 0 };
+        }
+
+        const period = (4 * 1024 * 1024) / 44100;
+        gb.sample_counter += gb.pending_t_cycles;
+
+        if (gb.sample_counter > period) {
+            gb.sample_counter %= period;
+
+            // const sample_u32 = convert_sample_f32_2_to_u32(sample);
+
+            write_sample(gb, sample[0]);
+            write_sample(gb, sample[1]);
         }
     }
 
     gb.pending_t_cycles = 0; // FIXME
+}
+
+fn convert_sample_f32_2_to_u32(sample: apu.StereoSample) u32 {
+    const r: u16 = @intFromFloat((sample[0] + 1.0) * 30000.0);
+    const l: u16 = @intFromFloat((sample[1] + 1.0) * 30000.0);
+
+    return @as(u32, l) << 16 | r; // FIXME
 }
 
 fn step_timer(gb: *cpu.GBState, clock_falling_edge_mask: u64) void {
@@ -956,6 +996,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
                 .JOYP => return mmio_bytes[offset] & 0x0F,
                 .DIV => return gb.clock.bits.div,
                 .TIMA, .TMA, .TAC => return mmio_bytes[offset],
+                .NR12, .NR22, .NR30, .NR42 => return mmio_bytes[offset],
                 .NR14, .NR24, .NR34, .NR44 => return mmio_bytes[offset],
                 .NR52 => return mmio_bytes[offset],
                 .LCDC, .DMA => return mmio_bytes[offset],
@@ -1010,6 +1051,22 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                 .DIV => { // Write resets clock
                     gb.clock.t_cycles = 0;
                 },
+                .NR12 => {
+                    mmio_bytes[offset] = value;
+                    apu.update_channel1_dac(&gb.apu_state.ch1, &gb.mmio.apu);
+                },
+                .NR22 => {
+                    mmio_bytes[offset] = value;
+                    apu.update_channel2_dac(&gb.apu_state.ch2, &gb.mmio.apu);
+                },
+                .NR30 => {
+                    mmio_bytes[offset] = value;
+                    apu.update_channel3_dac(&gb.apu_state.ch3, &gb.mmio.apu);
+                },
+                .NR42 => {
+                    mmio_bytes[offset] = value;
+                    apu.update_channel4_dac(&gb.apu_state.ch4, &gb.mmio.apu);
+                },
                 .NR14 => {
                     mmio_bytes[offset] = value;
                     apu.trigger_channel1(&gb.apu_state.ch1, &gb.mmio.apu);
@@ -1027,6 +1084,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     apu.trigger_channel4(&gb.apu_state.ch4, &gb.mmio.apu);
                 },
                 .NR52 => {
+                    // FIXME We should mask off the channel bits since they're read-only
                     const apu_was_on = gb.mmio.apu.NR52.enable_apu;
                     mmio_bytes[offset] = value;
                     const apu_is_on = gb.mmio.apu.NR52.enable_apu;

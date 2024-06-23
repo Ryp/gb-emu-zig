@@ -9,19 +9,24 @@ pub const APUState = struct {
 };
 
 const CH1State = struct {
+    enabled: bool = false,
     period: PeriodState = .{},
     envelope: EnvelopeState = .{},
     period_sweep_counter: u3 = 0,
 };
 
 const CH2State = struct {
+    enabled: bool = false,
     period: PeriodState = .{},
     envelope: EnvelopeState = .{},
 };
 
-const CH3State = struct {};
+const CH3State = struct {
+    enabled: bool = false,
+};
 
 const CH4State = struct {
+    enabled: bool = false,
     envelope: EnvelopeState = .{},
     lfsr: LFSR = .{ .mask = 0 },
     clock_counter: u3 = 0,
@@ -36,8 +41,10 @@ pub fn reset_apu(apu: *APUState) void {
 }
 
 // NOTE: This is called AFTER the new MMIO value was written
-pub fn trigger_channel1(ch1: *CH1State, mmio: *const MMIO) void {
+pub fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
     if (mmio.NR13_NR14.trigger) {
+        ch1.enabled = true;
+
         if (mmio.NR10.sweep_pace > 0) {
             ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
         }
@@ -50,8 +57,10 @@ pub fn trigger_channel1(ch1: *CH1State, mmio: *const MMIO) void {
     }
 }
 
-pub fn trigger_channel2(ch2: *CH2State, mmio: *const MMIO) void {
+pub fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
     if (mmio.NR23_NR24.trigger) {
+        ch2.enabled = true;
+
         if (mmio.NR22.envelope.sweep_pace > 0) {
             ch2.envelope.counter = mmio.NR22.envelope.sweep_pace - 1;
         }
@@ -60,18 +69,37 @@ pub fn trigger_channel2(ch2: *CH2State, mmio: *const MMIO) void {
     }
 }
 
-pub fn trigger_channel3(ch3: *CH3State, mmio: *const MMIO) void {
+pub fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     if (mmio.NR33_NR34.trigger) {
-        _ = ch3;
+        ch3.enabled = true;
+
         // unreachable; // FIXME
     }
 }
 
-pub fn trigger_channel4(ch4: *CH4State, mmio: *const MMIO) void {
+pub fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
     if (mmio.NR44.trigger) {
-        _ = ch4;
+        ch4.enabled = true;
+
         // unreachable; // FIXME
     }
+}
+
+// Turn off channels if the related DAC is off as well
+pub fn update_channel1_dac(ch1: *CH1State, mmio: *MMIO) void {
+    ch1.enabled = ch1.enabled and mmio.NR12.enable_dac.mask != 0;
+}
+
+pub fn update_channel2_dac(ch2: *CH2State, mmio: *MMIO) void {
+    ch2.enabled = ch2.enabled and mmio.NR22.enable_dac.mask != 0;
+}
+
+pub fn update_channel3_dac(ch3: *CH3State, mmio: *MMIO) void {
+    ch3.enabled = ch3.enabled and mmio.NR30.enable_dac;
+}
+
+pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
+    ch4.enabled = ch4.enabled and mmio.NR42.enable_dac.mask != 0;
 }
 
 pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64) void {
@@ -79,19 +107,17 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64) void 
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
     const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (5 + mmio.NR43.clock_shift)); // FIXME
-    const tick_period_rate: u1 = @truncate(clock_falling_edge_mask >> 1); // FIXME 1MHz
-
-    // FIXME Ticks happen when channel aren't triggered?
+    const tick_period_rate: u1 = @truncate(clock_falling_edge_mask >> 2); // FIXME 1MHz
 
     if (tick_64hz == 1) {
-        tick_envelope_sweep(&apu.ch1.envelope, mmio.NR12.envelope);
-        tick_envelope_sweep(&apu.ch2.envelope, mmio.NR22.envelope);
-        tick_envelope_sweep(&apu.ch4.envelope, mmio.NR42.envelope);
+        tick_envelope_sweep(&apu.ch1.envelope, apu.ch1.enabled, mmio.NR12.envelope);
+        tick_envelope_sweep(&apu.ch2.envelope, apu.ch2.enabled, mmio.NR22.envelope);
+        tick_envelope_sweep(&apu.ch4.envelope, apu.ch4.enabled, mmio.NR42.envelope);
     }
 
     if (tick_period_rate == 1) {
-        tick_period_counter(&apu.ch1.period, mmio.NR13_NR14);
-        tick_period_counter(&apu.ch2.period, mmio.NR23_NR24);
+        tick_period_counter(&apu.ch1.period, apu.ch1.enabled, mmio.NR13_NR14);
+        tick_period_counter(&apu.ch2.period, apu.ch2.enabled, mmio.NR23_NR24);
     }
 
     if (tick_128hz == 1) {
@@ -99,11 +125,11 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64) void 
     }
 
     if (tick_256hz == 1) {
-        tick_length_timers(mmio);
+        tick_length_timers(apu, mmio);
     }
 
     if (tick_lfsr_rate == 1) {
-        tick_lfsr(&apu.ch4.lfsr, mmio);
+        tick_lfsr(&apu.ch4.lfsr, apu.ch4.enabled, mmio);
     }
 }
 
@@ -120,10 +146,10 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
     channel_dac_enabled[2] = mmio.NR30.enable_dac;
     channel_dac_enabled[3] = mmio.NR42.enable_dac.mask != 0;
 
-    channel_samples[0] = generate_channel1_sample(apu.ch1, mmio, channel_dac_enabled[0]);
-    channel_samples[1] = generate_channel2_sample(apu.ch2, mmio, channel_dac_enabled[1]);
-    channel_samples[2] = 0; // FIXME
-    channel_samples[3] = 0; // FIXME
+    channel_samples[0] = generate_channel1_sample(apu.ch1, mmio);
+    channel_samples[1] = generate_channel2_sample(apu.ch2, mmio);
+    channel_samples[2] = ChannelOffSample; // FIXME
+    channel_samples[3] = ChannelOffSample; // FIXME
 
     var channel_samples_f32: [4]f32 = undefined;
 
@@ -136,42 +162,44 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
     // Mixer block
     const mixed_sample = mix_channel_samples(mmio, channel_samples_f32);
 
+    const normalized_sample = mixed_sample / @as(StereoSample, @splat(4.0));
+
     // FIXME Missing high-pass filter
 
-    return mixed_sample;
+    return normalized_sample;
 }
 
-fn tick_length_timers(mmio: *MMIO) void {
-    if (mmio.NR13_NR14.enable_length_timer) {
+fn tick_length_timers(apu: *APUState, mmio: *MMIO) void {
+    if (apu.ch1.enabled and mmio.NR13_NR14.enable_length_timer) {
         mmio.NR11.length_timer, const overflow = @addWithOverflow(mmio.NR11.length_timer, 1);
 
         if (overflow == 1) {
-            mmio.NR13_NR14.trigger = false;
+            apu.ch1.enabled = false;
         }
     }
 
-    if (mmio.NR23_NR24.enable_length_timer) {
+    if (apu.ch2.enabled and mmio.NR23_NR24.enable_length_timer) {
         mmio.NR21.length_timer, const overflow = @addWithOverflow(mmio.NR21.length_timer, 1);
 
         if (overflow == 1) {
-            mmio.NR23_NR24.trigger = false;
+            apu.ch2.enabled = false;
         }
     }
 
-    if (mmio.NR33_NR34.enable_length_timer) {
+    if (apu.ch3.enabled and mmio.NR33_NR34.enable_length_timer) {
         // FIXME would overflow at 256 instead of 64 of the docs
         mmio.NR31.length_timer, const overflow = @addWithOverflow(mmio.NR31.length_timer, 1);
 
         if (overflow == 1) {
-            mmio.NR33_NR34.trigger = false;
+            apu.ch3.enabled = false;
         }
     }
 
-    if (mmio.NR44.enable_length_timer) {
+    if (apu.ch4.enabled and mmio.NR44.enable_length_timer) {
         mmio.NR41.length_timer, const overflow = @addWithOverflow(mmio.NR41.length_timer, 1);
 
         if (overflow == 1) {
-            mmio.NR44.trigger = false;
+            apu.ch4.enabled = false;
         }
     }
 }
@@ -182,12 +210,14 @@ const PeriodState = struct {
 };
 
 // NOTE: should be updated before period sweep
-fn tick_period_counter(state: *PeriodState, mmio_frequency: MMIO_ChannelControlAndFrequency) void {
-    state.counter, const overflow = @addWithOverflow(state.counter, 1);
+fn tick_period_counter(state: *PeriodState, channel_enabled: bool, mmio_frequency: MMIO_ChannelControlAndFrequency) void {
+    if (channel_enabled) {
+        state.counter, const overflow = @addWithOverflow(state.counter, 1);
 
-    if (overflow == 1) {
-        state.counter = mmio_frequency.period;
-        state.duty_index +%= 1;
+        if (overflow == 1) {
+            state.counter = mmio_frequency.period;
+            state.duty_index +%= 1;
+        }
     }
 }
 
@@ -196,8 +226,8 @@ const EnvelopeState = struct {
     volume: u4 = 0,
 };
 
-fn tick_envelope_sweep(state: *EnvelopeState, mmio_envelope: MMIO_EnvelopeProperties) void {
-    if (mmio_envelope.sweep_pace != 0) // Envelope is enabled
+fn tick_envelope_sweep(state: *EnvelopeState, channel_enabled: bool, mmio_envelope: MMIO_EnvelopeProperties) void {
+    if (channel_enabled and mmio_envelope.sweep_pace != 0) // Envelope is enabled
     {
         state.counter, const overflow = @subWithOverflow(state.counter, 1);
 
@@ -217,31 +247,34 @@ fn tick_envelope_sweep(state: *EnvelopeState, mmio_envelope: MMIO_EnvelopeProper
 }
 
 fn tick_period_sweep(ch1: *CH1State, mmio: *MMIO) void {
-    const period_delta = mmio.NR13_NR14.period >> mmio.NR10.step;
-    _, const period_would_overflow = @addWithOverflow(mmio.NR13_NR14.period, period_delta);
+    if (ch1.enabled) {
+        const period_delta = mmio.NR13_NR14.period >> mmio.NR10.step;
+        _, const period_would_overflow = @addWithOverflow(mmio.NR13_NR14.period, period_delta);
 
-    // Weird quirk
-    // https://gbdev.io/pandocs/Audio_Registers.html#ff10--nr10-channel-1-sweep
-    if (period_would_overflow == 1) {
-        mmio.NR13_NR14.trigger = false;
-        return;
-    }
+        // Weird quirk
+        // https://gbdev.io/pandocs/Audio_Registers.html#ff10--nr10-channel-1-sweep
+        if (period_would_overflow == 1) {
+            // FIXME this is broken!
+            // ch1.enabled = false;
+            // return;
+        }
 
-    if (mmio.NR10.sweep_pace != 0) // Frequency sweep is enabled
-    {
-        ch1.period_sweep_counter, const overflow_sweep_count = @subWithOverflow(ch1.period_sweep_counter, 1);
+        if (mmio.NR10.sweep_pace != 0) // Frequency sweep is enabled
+        {
+            ch1.period_sweep_counter, const overflow_sweep_count = @subWithOverflow(ch1.period_sweep_counter, 1);
 
-        if (overflow_sweep_count == 1) {
-            switch (mmio.NR10.direction) {
-                .Add => {
-                    mmio.NR13_NR14.period += period_delta;
-                },
-                .Sub => {
-                    mmio.NR13_NR14.period -= period_delta;
-                },
+            if (overflow_sweep_count == 1) {
+                switch (mmio.NR10.direction) {
+                    .Add => {
+                        mmio.NR13_NR14.period += period_delta;
+                    },
+                    .Sub => {
+                        mmio.NR13_NR14.period -= period_delta;
+                    },
+                }
+
+                ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
             }
-
-            ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
         }
     }
 }
@@ -258,21 +291,22 @@ const LFSR = packed union {
     },
 };
 
-fn tick_lfsr(lfsr: *LFSR, mmio: *const MMIO) void {
-    const new_bit = ~(lfsr.bits.bit0 ^ lfsr.bits.bit1);
+fn tick_lfsr(lfsr: *LFSR, channel_enabled: bool, mmio: *const MMIO) void {
+    if (channel_enabled) {
+        const new_bit = ~(lfsr.bits.bit0 ^ lfsr.bits.bit1);
 
-    lfsr.bits.bit15 = new_bit;
+        lfsr.bits.bit15 = new_bit;
 
-    if (mmio.NR43.lfsr_width == .Short) {
-        lfsr.bits.bit7 = new_bit;
+        if (mmio.NR43.lfsr_width == .Short) {
+            lfsr.bits.bit7 = new_bit;
+        }
+
+        lfsr.mask >>= 1;
     }
-
-    lfsr.mask >>= 1;
 }
 
-fn generate_channel1_sample(ch1: CH1State, mmio: *const MMIO, dac_enabled: bool) u4 {
-    const channel_enabled = dac_enabled and mmio.NR52.enable.channel1;
-    const channel_active = channel_enabled and mmio.NR13_NR14.trigger and (!mmio.NR13_NR14.enable_length_timer or mmio.NR11.length_timer > 0);
+fn generate_channel1_sample(ch1: CH1State, mmio: *const MMIO) u4 {
+    const channel_active = ch1.enabled and (!mmio.NR13_NR14.enable_length_timer or mmio.NR11.length_timer > 0);
 
     if (!channel_active) {
         return ChannelOffSample;
@@ -284,9 +318,8 @@ fn generate_channel1_sample(ch1: CH1State, mmio: *const MMIO, dac_enabled: bool)
     return sample;
 }
 
-fn generate_channel2_sample(ch2: CH2State, mmio: *const MMIO, dac_enabled: bool) u4 {
-    const channel_enabled = dac_enabled and mmio.NR52.enable.channel2;
-    const channel_active = channel_enabled and mmio.NR23_NR24.trigger and (!mmio.NR23_NR24.enable_length_timer or mmio.NR21.length_timer > 0);
+fn generate_channel2_sample(ch2: CH2State, mmio: *const MMIO) u4 {
+    const channel_active = ch2.enabled and (!mmio.NR23_NR24.enable_length_timer or mmio.NR21.length_timer > 0);
 
     if (!channel_active) {
         return ChannelOffSample;
@@ -337,7 +370,7 @@ const ChannelOffSample = 0;
 
 // 0 = R
 // 1 = L
-const StereoSample = f32_2;
+pub const StereoSample = f32_2;
 
 const f32_2 = @Vector(2, f32);
 const f32_4 = @Vector(4, f32);
@@ -412,7 +445,7 @@ pub const MMIO = packed struct {
         enable_l: MMIO_PerChannelBool,
     },
     NR52: packed struct { // 0x26 Audio master control
-        enable: MMIO_PerChannelBool,
+        enabled: MMIO_PerChannelBool, // FIXME Read-only
         _unused: u3,
         enable_apu: bool,
     },

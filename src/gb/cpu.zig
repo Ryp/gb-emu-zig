@@ -33,6 +33,10 @@ pub const GBState = struct {
     keys: joypad.Keys,
 
     apu_state: apu.APUState, // Internal state
+    audio_ring_buffer: []f32,
+    rb_write: usize = 0,
+    rb_read: usize = 0,
+    sample_counter: u32 = 0,
 
     is_halted: bool = false, // FIXME
     pending_t_cycles: u8, // How much the CPU is in advance over other components
@@ -57,6 +61,9 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
 
     const screen_output = try allocator.alloc(u8, ppu.ScreenSizeBytes);
     errdefer allocator.free(screen_output);
+
+    const audio_ring_buffer = try allocator.alloc(f32, 4096);
+    errdefer allocator.free(audio_ring_buffer);
 
     var mmio: MMIO = undefined;
     const mmio_memory: *[MMIOSizeBytes]u8 = @ptrCast(&mmio);
@@ -124,6 +131,7 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
         .active_sprite_count = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .apu_state = apu.create_apu_state(),
+        .audio_ring_buffer = audio_ring_buffer,
         .pending_t_cycles = 0,
         .clock = .{ .t_cycles = 0 },
     };
@@ -133,6 +141,7 @@ pub fn destroy_gb_state(allocator: std.mem.Allocator, gb: *GBState) void {
     allocator.free(gb.ram);
     allocator.free(gb.vram);
     allocator.free(gb.screen_output);
+    allocator.free(gb.audio_ring_buffer);
 }
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
@@ -344,20 +353,20 @@ pub const MMIO_Offset = enum(u8) {
     // IF         = 0x0F, // Interrupt Flag (R/W)
     // NR10       = 0x10, // Channel 1 Sweep register (R/W)
     // NR11       = 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
-    // NR12       = 0x12, // Channel 1 Volume Envelope (R/W)
+    NR12 = 0x12, // Channel 1 Volume Envelope (R/W)
     // NR13       = 0x13, // Channel 1 Frequency lo (Write Only)
     NR14 = 0x14, // Channel 1 Frequency hi (R/W)
     // NR21       = 0x16, // Channel 2 Sound Length/Wave Pattern Duty (R/W)
-    // NR22       = 0x17, // Channel 2 Volume Envelope (R/W)
+    NR22 = 0x17, // Channel 2 Volume Envelope (R/W)
     // NR23       = 0x18, // Channel 2 Frequency lo data (W)
     NR24 = 0x19, // Channel 2 Frequency hi data (R/W)
-    // NR30       = 0x1A, // Channel 3 Sound on/off (R/W)
+    NR30 = 0x1A, // Channel 3 Sound on/off (R/W)
     // NR31       = 0x1B, // Channel 3 Sound Length
     // NR32       = 0x1C, // Channel 3 Select output level (R/W)
     // NR33       = 0x1D, // Channel 3 Frequency's lower data (W)
     NR34 = 0x1E, // Channel 3 Frequency's higher data (R/W)
     // NR41       = 0x20, // Channel 4 Sound Length (R/W)
-    // NR42       = 0x21, // Channel 4 Volume Envelope (R/W)
+    NR42 = 0x21, // Channel 4 Volume Envelope (R/W)
     // NR43       = 0x22, // Channel 4 Polynomial Counter (R/W)
     NR44 = 0x23, // Channel 4 Counter/consecutive, Inital (R/W)
     // NR50       = 0x24, // Channel control / ON-OFF / Volume (R/W)

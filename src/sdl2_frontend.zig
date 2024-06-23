@@ -65,6 +65,30 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
     const sdl_context = try create_sdl_context(allocator);
     defer destroy_sdl_context(allocator, sdl_context);
 
+    var desired_spec: c.SDL_AudioSpec = undefined;
+    var obtained_spec: c.SDL_AudioSpec = undefined;
+
+    desired_spec.freq = 44100;
+    desired_spec.format = c.AUDIO_F32;
+    desired_spec.channels = 2;
+    desired_spec.samples = 4096;
+    desired_spec.callback = null;
+    desired_spec.userdata = null;
+
+    if (c.SDL_OpenAudio(&desired_spec, &obtained_spec) != 0) {
+        c.SDL_Log("Could not to open audio: %s", c.SDL_GetError());
+        return error.SDLInitializationFailed;
+    }
+    defer c.SDL_CloseAudio();
+
+    assert(desired_spec.freq == obtained_spec.freq);
+    assert(desired_spec.format == obtained_spec.format);
+    assert(desired_spec.channels == obtained_spec.channels);
+
+    const sdl_audio_device_id: u32 = 1;
+
+    c.SDL_PauseAudio(0); // Play audio
+
     const title_string = try allocator.alloc(u8, 1024);
     defer allocator.free(title_string);
 
@@ -118,6 +142,30 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
             for (0..512) |_| {
                 try execution.step(gb);
             }
+
+            //var samples: [200]f32 = undefined;
+
+            //for (&samples, 0..) |*s, i| {
+            //    const i_f = @as(f32, @floatFromInt(i)) / 200.0;
+            //    s.* = std.math.sin(i_f);
+            //}
+
+            //if (c.SDL_QueueAudio(1, &samples, samples.len) != 0) {
+            //    c.SDL_Log("Could not queue audio: %s", c.SDL_GetError());
+            //    return error.SDLInitializationFailed;
+            //}
+
+            const samples = execution.read_audio(gb);
+            const sample_bytes = std.mem.sliceAsBytes(samples);
+
+            const queue_size = c.SDL_GetQueuedAudioSize(sdl_audio_device_id);
+
+            if (c.SDL_QueueAudio(sdl_audio_device_id, sample_bytes.ptr, @intCast(sample_bytes.len)) != 0) {
+                c.SDL_Log("Could not queue audio: %s", c.SDL_GetError());
+                return error.SDLInitializationFailed;
+            }
+
+            std.debug.print("sent {} audio samples. queue_size = {}\n", .{ samples.len, queue_size });
         }
 
         gb.has_frame_to_consume = false;
