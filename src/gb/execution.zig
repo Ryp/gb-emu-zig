@@ -70,7 +70,7 @@ pub fn step(gb: *GBState) !void {
         if (enable_debug) {
             print_register_debug(gb.registers);
             std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
-            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8}", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enabled_interrupt_mask, gb.mmio.IF.requested_interrupt.mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
+            std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8} | ", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enabled_interrupt_mask, gb.mmio.IF.requested_interrupt.mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
 
             instructions.debug_print(current_instruction);
         }
@@ -164,6 +164,8 @@ fn step_timer(gb: *cpu.GBState, clock_falling_edge_mask: u64) void {
     }
 }
 
+const DMACopyByteCount = 160;
+
 fn step_dma(gb: *cpu.GBState, t_cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
@@ -174,7 +176,7 @@ fn step_dma(gb: *cpu.GBState, t_cycle_count: u8) void {
     // Copy 1 byte per M-cycle
     const byte_count_to_copy_max = t_cycle_count / 4;
     const copy_offset_begin = gb.dma_current_offset;
-    const copy_offset_end = @min(gb.dma_current_offset + byte_count_to_copy_max, cpu.DMACopyByteCount);
+    const copy_offset_end = @min(gb.dma_current_offset + byte_count_to_copy_max, DMACopyByteCount);
 
     for (copy_offset_begin..copy_offset_end) |offset| {
         oam_sprites_mem[offset] = load_memory_u8(gb, dma_src_address + @as(u16, @intCast(offset)));
@@ -183,7 +185,7 @@ fn step_dma(gb: *cpu.GBState, t_cycle_count: u8) void {
     // Update state
     gb.dma_current_offset = copy_offset_end;
 
-    if (copy_offset_end == cpu.DMACopyByteCount) {
+    if (copy_offset_end == DMACopyByteCount) {
         gb.dma_active = false;
     }
 }
@@ -1190,9 +1192,6 @@ const TAC = 0x07; // Timer Control (R/W)
 // PPU Region A
 const DMA = 0x46; // DMA Transfer and Start Address (W)
 // PPU Region B
-// KEY0       = 0x4C, // Controls DMG mode and PGB mode
-// KEY1       = 0x4D, // CGB Mode Only - Prepare Speed Switch
-// VBK        = 0x4F, // CGB Mode Only - VRAM Bank
 // BANK       = 0x50, // Write to disable the boot ROM mapping
 // HDMA1      = 0x51, // CGB Mode Only - New DMA Source, High
 // HDMA2      = 0x52, // CGB Mode Only - New DMA Source, Low

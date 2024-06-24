@@ -326,16 +326,11 @@ pub const MMIO = packed struct {
     },
 };
 
+pub const MMIOSizeBytes = 256;
+
 comptime {
     assert(@offsetOf(MMIO, "apu") == 0x10);
     assert(@offsetOf(MMIO, "ppu") == 0x40);
     assert(@offsetOf(MMIO, "PCM34") == 0x77);
     assert(@sizeOf(MMIO) == MMIOSizeBytes);
 }
-
-pub const MMIOSizeBytes = 256;
-
-pub const TClockPeriod = 4 * 1024 * 1024;
-pub const DIVClockPeriod = 16 * 1024;
-
-pub const DMACopyByteCount = 160;

@@ -125,7 +125,7 @@ pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
 pub const MMIO_OffsetABegin = LCDC;
 pub const MMIO_OffsetAEndInclusive = LYC;
 pub const MMIO_OffsetBBegin = BGP;
-pub const MMIO_OffsetBEndInclusive = WX;
+pub const MMIO_OffsetBEndInclusive = VBK;
 
 pub fn store_mmio_u8(ppu: *PPUState, mmio: *MMIO, mmio_bytes: []u8, offset: u8, value: u8) void {
     switch (offset) {
@@ -511,3 +511,6 @@ const OBP0 = 0x48; // Object Palette 0 Data (R/W) - Non CGB Mode Only
 const OBP1 = 0x49; // Object Palette 1 Data (R/W) - Non CGB Mode Only
 const WY = 0x4A; // Window Y Position (R/W)
 const WX = 0x4B; // Window X Position minus 7 (R/W)
+const KEY0 = 0x4C; // Controls DMG mode and PGB mode
+const KEY1 = 0x4D; // CGB Mode Only - Prepare Speed Switch
+const VBK = 0x4F; // CGB Mode Only - VRAM Bank
