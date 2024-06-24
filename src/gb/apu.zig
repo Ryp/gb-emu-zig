@@ -40,68 +40,6 @@ pub fn reset_apu(apu: *APUState) void {
     apu.* = create_apu_state();
 }
 
-// NOTE: This is called AFTER the new MMIO value was written
-pub fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
-    if (mmio.NR13_NR14.trigger) {
-        ch1.enabled = true;
-
-        if (mmio.NR10.sweep_pace > 0) {
-            ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
-        }
-
-        if (mmio.NR12.envelope.sweep_pace > 0) {
-            ch1.envelope.counter = mmio.NR12.envelope.sweep_pace - 1;
-        }
-
-        ch1.envelope.volume = mmio.NR12.envelope.initial_volume;
-    }
-}
-
-pub fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
-    if (mmio.NR23_NR24.trigger) {
-        ch2.enabled = true;
-
-        if (mmio.NR22.envelope.sweep_pace > 0) {
-            ch2.envelope.counter = mmio.NR22.envelope.sweep_pace - 1;
-        }
-
-        ch2.envelope.volume = mmio.NR22.envelope.initial_volume;
-    }
-}
-
-pub fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
-    if (mmio.NR33_NR34.trigger) {
-        ch3.enabled = true;
-
-        // unreachable; // FIXME
-    }
-}
-
-pub fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
-    if (mmio.NR44.trigger) {
-        ch4.enabled = true;
-
-        // unreachable; // FIXME
-    }
-}
-
-// Turn off channels if the related DAC is off as well
-pub fn update_channel1_dac(ch1: *CH1State, mmio: *MMIO) void {
-    ch1.enabled = ch1.enabled and mmio.NR12.enable_dac.mask != 0;
-}
-
-pub fn update_channel2_dac(ch2: *CH2State, mmio: *MMIO) void {
-    ch2.enabled = ch2.enabled and mmio.NR22.enable_dac.mask != 0;
-}
-
-pub fn update_channel3_dac(ch3: *CH3State, mmio: *MMIO) void {
-    ch3.enabled = ch3.enabled and mmio.NR30.enable_dac;
-}
-
-pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
-    ch4.enabled = ch4.enabled and mmio.NR42.enable_dac.mask != 0;
-}
-
 // This function assumes that all ticks are only going to happen once per call.
 // If you call this function after too many cycles passed, you will miss tick events
 // and the APU will most likely output the wrong sound.
@@ -165,6 +103,68 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
     // FIXME Missing high-pass filter
 
     return normalized_sample;
+}
+
+// NOTE: This is called AFTER the new MMIO value was written
+pub fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
+    if (mmio.NR13_NR14.trigger) {
+        ch1.enabled = true;
+
+        if (mmio.NR10.sweep_pace > 0) {
+            ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
+        }
+
+        if (mmio.NR12.envelope.sweep_pace > 0) {
+            ch1.envelope.counter = mmio.NR12.envelope.sweep_pace - 1;
+        }
+
+        ch1.envelope.volume = mmio.NR12.envelope.initial_volume;
+    }
+}
+
+pub fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
+    if (mmio.NR23_NR24.trigger) {
+        ch2.enabled = true;
+
+        if (mmio.NR22.envelope.sweep_pace > 0) {
+            ch2.envelope.counter = mmio.NR22.envelope.sweep_pace - 1;
+        }
+
+        ch2.envelope.volume = mmio.NR22.envelope.initial_volume;
+    }
+}
+
+pub fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
+    if (mmio.NR33_NR34.trigger) {
+        ch3.enabled = true;
+
+        // unreachable; // FIXME
+    }
+}
+
+pub fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
+    if (mmio.NR44.trigger) {
+        ch4.enabled = true;
+
+        // unreachable; // FIXME
+    }
+}
+
+// Turn off channels if the related DAC is off as well
+pub fn update_channel1_dac(ch1: *CH1State, mmio: *MMIO) void {
+    ch1.enabled = ch1.enabled and mmio.NR12.enable_dac.mask != 0;
+}
+
+pub fn update_channel2_dac(ch2: *CH2State, mmio: *MMIO) void {
+    ch2.enabled = ch2.enabled and mmio.NR22.enable_dac.mask != 0;
+}
+
+pub fn update_channel3_dac(ch3: *CH3State, mmio: *MMIO) void {
+    ch3.enabled = ch3.enabled and mmio.NR30.enable_dac;
+}
+
+pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
+    ch4.enabled = ch4.enabled and mmio.NR42.enable_dac.mask != 0;
 }
 
 fn tick_length_timers(apu: *APUState, mmio: *MMIO) void {
@@ -324,6 +324,13 @@ fn generate_channel2_sample(ch2: CH2State, mmio: *const MMIO) u4 {
 
     return DutyCycles[mmio.NR21.wave_duty][ch2.period.duty_index] * ch2.envelope.volume;
 }
+
+const DutyCycles: [4][8]u1 = .{
+    .{ 1, 1, 1, 1, 1, 1, 1, 0 }, // 12.5%
+    .{ 0, 1, 1, 1, 1, 1, 1, 0 }, // 25%
+    .{ 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
+    .{ 1, 0, 0, 0, 0, 0, 0, 1 }, // 75%
+};
 
 fn generate_channel4_sample(ch4: CH4State, mmio: *const MMIO) u4 {
     const channel_active = ch4.enabled and (!mmio.NR44.enable_length_timer or mmio.NR41.length_timer > 0);
@@ -508,10 +515,3 @@ const MMIO_PerChannelBool = packed struct {
 comptime {
     assert(@sizeOf(MMIO) == 0x30);
 }
-
-const DutyCycles: [4][8]u1 = .{
-    .{ 1, 1, 1, 1, 1, 1, 1, 0 }, // 12.5%
-    .{ 0, 1, 1, 1, 1, 1, 1, 0 }, // 25%
-    .{ 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
-    .{ 1, 0, 0, 0, 0, 0, 0, 1 }, // 75%
-};
