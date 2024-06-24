@@ -990,18 +990,15 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
         0xfea0...0xfeff => unreachable, // Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
-            const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
-            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            const mmio_bytes = std.mem.asBytes(&gb.mmio);
 
-            switch (typed_offset) {
-                .JOYP => return mmio_bytes[offset] & 0x0F,
-                .DIV => return gb.clock.bits.div,
-                .TIMA, .TMA, .TAC => return mmio_bytes[offset],
-                .NR12, .NR22, .NR30, .NR42 => return mmio_bytes[offset],
-                .NR14, .NR24, .NR34, .NR44 => return mmio_bytes[offset],
-                .NR52 => return mmio_bytes[offset],
-                .LCDC, .DMA => return mmio_bytes[offset],
-                _ => return mmio_bytes[offset],
+            switch (offset) {
+                JOYP => return mmio_bytes[offset] & 0x0F,
+                DIV => return gb.clock.bits.div,
+                apu.MMIO_OffsetBegin...apu.MMIO_OffsetEndInclusive => return apu.load_mmio_u8(&gb.apu_state, &gb.mmio.apu, mmio_bytes, offset),
+                TIMA, TMA, TAC => return mmio_bytes[offset],
+                LCDC, DMA => return mmio_bytes[offset],
+                else => return mmio_bytes[offset],
             }
         },
         0xff80...0xfffe => { // HRAM
@@ -1043,58 +1040,16 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         0xfea0...0xfeff => {}, // FIXME Nothing?
         0xff00...0xff7f, 0xffff => { // MMIO
             const offset: u8 = @truncate(address);
-            const typed_offset: cpu.MMIO_Offset = @enumFromInt(offset);
-            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            const mmio_bytes = std.mem.asBytes(&gb.mmio);
 
-            switch (typed_offset) {
+            switch (offset) {
                 // We could probably just write the full byte and not worry
-                .JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
-                .DIV => { // Write resets clock
+                JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
+                DIV => { // Write resets clock
                     gb.clock.t_cycles = 0;
                 },
-                .NR12 => {
-                    mmio_bytes[offset] = value;
-                    apu.update_channel1_dac(&gb.apu_state.ch1, &gb.mmio.apu);
-                },
-                .NR22 => {
-                    mmio_bytes[offset] = value;
-                    apu.update_channel2_dac(&gb.apu_state.ch2, &gb.mmio.apu);
-                },
-                .NR30 => {
-                    mmio_bytes[offset] = value;
-                    apu.update_channel3_dac(&gb.apu_state.ch3, &gb.mmio.apu);
-                },
-                .NR42 => {
-                    mmio_bytes[offset] = value;
-                    apu.update_channel4_dac(&gb.apu_state.ch4, &gb.mmio.apu);
-                },
-                .NR14 => {
-                    mmio_bytes[offset] = value;
-                    apu.trigger_channel1(&gb.apu_state.ch1, &gb.mmio.apu);
-                },
-                .NR24 => {
-                    mmio_bytes[offset] = value;
-                    apu.trigger_channel2(&gb.apu_state.ch2, &gb.mmio.apu);
-                },
-                .NR34 => {
-                    mmio_bytes[offset] = value;
-                    apu.trigger_channel3(&gb.apu_state.ch3, &gb.mmio.apu);
-                },
-                .NR44 => {
-                    mmio_bytes[offset] = value;
-                    apu.trigger_channel4(&gb.apu_state.ch4, &gb.mmio.apu);
-                },
-                .NR52 => {
-                    // FIXME We should mask off the channel bits since they're read-only
-                    const apu_was_on = gb.mmio.apu.NR52.enable_apu;
-                    mmio_bytes[offset] = value;
-                    const apu_is_on = gb.mmio.apu.NR52.enable_apu;
-
-                    if (!apu_was_on and apu_is_on) {
-                        apu.reset_apu(&gb.apu_state);
-                    }
-                },
-                .LCDC => {
+                apu.MMIO_OffsetBegin...apu.MMIO_OffsetEndInclusive => apu.store_mmio_u8(&gb.apu_state, &gb.mmio.apu, mmio_bytes, offset, value),
+                LCDC => {
                     const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
                     mmio_bytes[offset] = value;
                     const lcd_is_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
@@ -1106,15 +1061,15 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                         ppu.reset_ppu(&gb.ppu_state, &gb.mmio.ppu, gb.vram);
                     }
                 },
-                .DMA => {
+                DMA => {
                     assert(value <= 0xdf);
                     gb.mmio.ppu.DMA = value;
 
                     gb.dma_active = true;
                     gb.dma_current_offset = 0;
                 },
-                .TIMA, .TMA, .TAC => mmio_bytes[offset] = value,
-                _ => mmio_bytes[offset] = value,
+                TIMA, TMA, TAC => mmio_bytes[offset] = value,
+                else => mmio_bytes[offset] = value,
             }
         },
         0xff80...0xfffe => { // HRAM
@@ -1231,3 +1186,49 @@ fn set_carry(registers: *Registers, carry: bool) void {
 fn set_half_carry(registers: *Registers, half_carry: bool) void {
     registers.flags.half_carry = if (half_carry) 1 else 0;
 }
+
+// For instruction execution it's useful to also be able to index mmio memory with offsets
+const JOYP = 0x00; // Joypad (R/W)
+// SB         = 0x01, // Serial transfer data (R/W)
+// SC         = 0x02, // Serial Transfer Control (R/W)
+const DIV = 0x04; // Divider Register (R/W)
+const TIMA = 0x05; // Timer counter (R/W)
+const TMA = 0x06; // Timer Modulo (R/W)
+const TAC = 0x07; // Timer Control (R/W)
+// IF         = 0x0F, // Interrupt Flag (R/W)
+const LCDC = 0x40; // LCD Control (R/W)
+// STAT       = 0x41, // LCDC Status (R/W)
+// SCY        = 0x42, // Scroll Y (R/W)
+// SCX        = 0x43, // Scroll X (R/W)
+// LY         = 0x44, // LCDC Y-Coordinate (R)
+// LYC        = 0x45, // LY Compare (R/W)
+const DMA = 0x46; // DMA Transfer and Start Address (W)
+// BGP        = 0x47, // BG Palette Data (R/W) - Non CGB Mode Only
+// OBP0       = 0x48, // Object Palette 0 Data (R/W) - Non CGB Mode Only
+// OBP1       = 0x49, // Object Palette 1 Data (R/W) - Non CGB Mode Only
+// WY         = 0x4A, // Window Y Position (R/W)
+// WX         = 0x4B, // Window X Position minus 7 (R/W)
+// KEY0       = 0x4C, // Controls DMG mode and PGB mode
+// KEY1       = 0x4D, // CGB Mode Only - Prepare Speed Switch
+// VBK        = 0x4F, // CGB Mode Only - VRAM Bank
+// BANK       = 0x50, // Write to disable the boot ROM mapping
+// HDMA1      = 0x51, // CGB Mode Only - New DMA Source, High
+// HDMA2      = 0x52, // CGB Mode Only - New DMA Source, Low
+// HDMA3      = 0x53, // CGB Mode Only - New DMA Destination, High
+// HDMA4      = 0x54, // CGB Mode Only - New DMA Destination, Low
+// HDMA5      = 0x55, // CGB Mode Only - New DMA Length/Mode/Start
+// RP         = 0x56, // CGB Mode Only - Infrared Communications Port
+// BGPI       = 0x68, // CGB Mode Only - Background Palette Index
+// BGPD       = 0x69, // CGB Mode Only - Background Palette Data
+// OBPI       = 0x6A, // CGB Mode Only - Object Palette Index
+// OBPD       = 0x6B, // CGB Mode Only - Object Palette Data
+// OPRI       = 0x6C, // Affects object priority (X based or index based)
+// SVBK       = 0x70, // CGB Mode Only - WRAM Bank
+// PSM        = 0x71, // Palette Selection Mode, controls the PSW and key combo
+// PSWX       = 0x72, // X position of the palette switching window
+// PSWY       = 0x73, // Y position of the palette switching window
+// PSW        = 0x74, // Key combo to trigger the palette switching window
+// UNKNOWN5   = 0x75, // (8Fh) - Bit 4-6 (Read/Write)
+// PCM12     = 0x76, // Channels 1 and 2 amplitudes
+// PCM34     = 0x77, // Channels 3 and 4 amplitudes
+// IE        = 0xFF, // IE - Interrupt Enable

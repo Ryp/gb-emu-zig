@@ -297,7 +297,6 @@ fn get_sprite_tile_info(sprite: Sprite, sprites_extent: u8_2, pixel_coord: u8_2)
     };
 }
 
-// FIXME
 fn all(vector: anytype) bool {
     const type_info = @typeInfo(@TypeOf(vector));
     assert(type_info.Vector.child == bool);

@@ -97,9 +97,9 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
     mmio_memory[0xFF] = 0x00;
 
     // FIXME
-    mmio.ppu.LY = 0;
     mmio.JOYP.input_selector = .both;
     mmio.JOYP._unused = 0b11;
+    mmio.ppu.LY = 0;
 
     return GBState{
         .cart = cart_state,
@@ -327,78 +327,6 @@ pub const MMIO = packed struct {
         enabled_interrupt_mask: u5,
         _unused: u3,
     },
-};
-
-// For instruction execution it's useful to also be able to index mmio memory with offsets
-pub const MMIO_Offset = enum(u8) {
-    JOYP = 0x00, // Joypad (R/W)
-    // SB         = 0x01, // Serial transfer data (R/W)
-    // SC         = 0x02, // Serial Transfer Control (R/W)
-    DIV = 0x04, // Divider Register (R/W)
-    TIMA = 0x05, // Timer counter (R/W)
-    TMA = 0x06, // Timer Modulo (R/W)
-    TAC = 0x07, // Timer Control (R/W)
-    // IF         = 0x0F, // Interrupt Flag (R/W)
-    // NR10       = 0x10, // Channel 1 Sweep register (R/W)
-    // NR11       = 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
-    NR12 = 0x12, // Channel 1 Volume Envelope (R/W)
-    // NR13       = 0x13, // Channel 1 Frequency lo (Write Only)
-    NR14 = 0x14, // Channel 1 Frequency hi (R/W)
-    // NR21       = 0x16, // Channel 2 Sound Length/Wave Pattern Duty (R/W)
-    NR22 = 0x17, // Channel 2 Volume Envelope (R/W)
-    // NR23       = 0x18, // Channel 2 Frequency lo data (W)
-    NR24 = 0x19, // Channel 2 Frequency hi data (R/W)
-    NR30 = 0x1A, // Channel 3 Sound on/off (R/W)
-    // NR31       = 0x1B, // Channel 3 Sound Length
-    // NR32       = 0x1C, // Channel 3 Select output level (R/W)
-    // NR33       = 0x1D, // Channel 3 Frequency's lower data (W)
-    NR34 = 0x1E, // Channel 3 Frequency's higher data (R/W)
-    // NR41       = 0x20, // Channel 4 Sound Length (R/W)
-    NR42 = 0x21, // Channel 4 Volume Envelope (R/W)
-    // NR43       = 0x22, // Channel 4 Polynomial Counter (R/W)
-    NR44 = 0x23, // Channel 4 Counter/consecutive, Inital (R/W)
-    // NR50       = 0x24, // Channel control / ON-OFF / Volume (R/W)
-    // NR51       = 0x25, // Selection of Sound output terminal (R/W)
-    NR52 = 0x26, // Audio master control
-    // WAV_START  = 0x30, // Wave pattern start
-    // WAV_END    = 0x3F, // Wave pattern end
-    LCDC = 0x40, // LCD Control (R/W)
-    // STAT       = 0x41, // LCDC Status (R/W)
-    // SCY        = 0x42, // Scroll Y (R/W)
-    // SCX        = 0x43, // Scroll X (R/W)
-    // LY         = 0x44, // LCDC Y-Coordinate (R)
-    // LYC        = 0x45, // LY Compare (R/W)
-    DMA = 0x46, // DMA Transfer and Start Address (W)
-    // BGP        = 0x47, // BG Palette Data (R/W) - Non CGB Mode Only
-    // OBP0       = 0x48, // Object Palette 0 Data (R/W) - Non CGB Mode Only
-    // OBP1       = 0x49, // Object Palette 1 Data (R/W) - Non CGB Mode Only
-    // WY         = 0x4A, // Window Y Position (R/W)
-    // WX         = 0x4B, // Window X Position minus 7 (R/W)
-    // KEY0       = 0x4C, // Controls DMG mode and PGB mode
-    // KEY1       = 0x4D, // CGB Mode Only - Prepare Speed Switch
-    // VBK        = 0x4F, // CGB Mode Only - VRAM Bank
-    // BANK       = 0x50, // Write to disable the boot ROM mapping
-    // HDMA1      = 0x51, // CGB Mode Only - New DMA Source, High
-    // HDMA2      = 0x52, // CGB Mode Only - New DMA Source, Low
-    // HDMA3      = 0x53, // CGB Mode Only - New DMA Destination, High
-    // HDMA4      = 0x54, // CGB Mode Only - New DMA Destination, Low
-    // HDMA5      = 0x55, // CGB Mode Only - New DMA Length/Mode/Start
-    // RP         = 0x56, // CGB Mode Only - Infrared Communications Port
-    // BGPI       = 0x68, // CGB Mode Only - Background Palette Index
-    // BGPD       = 0x69, // CGB Mode Only - Background Palette Data
-    // OBPI       = 0x6A, // CGB Mode Only - Object Palette Index
-    // OBPD       = 0x6B, // CGB Mode Only - Object Palette Data
-    // OPRI       = 0x6C, // Affects object priority (X based or index based)
-    // SVBK       = 0x70, // CGB Mode Only - WRAM Bank
-    // PSM        = 0x71, // Palette Selection Mode, controls the PSW and key combo
-    // PSWX       = 0x72, // X position of the palette switching window
-    // PSWY       = 0x73, // Y position of the palette switching window
-    // PSW        = 0x74, // Key combo to trigger the palette switching window
-    // UNKNOWN5   = 0x75, // (8Fh) - Bit 4-6 (Read/Write)
-    // PCM12     = 0x76, // Channels 1 and 2 amplitudes
-    // PCM34     = 0x77, // Channels 3 and 4 amplitudes
-    // IE        = 0xFF, // IE - Interrupt Enable
-    _, // There's plenty of unused addressing
 };
 
 comptime {

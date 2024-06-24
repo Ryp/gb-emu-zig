@@ -36,7 +36,7 @@ pub fn create_apu_state() APUState {
     return .{};
 }
 
-pub fn reset_apu(apu: *APUState) void {
+fn reset_apu(apu: *APUState) void {
     apu.* = create_apu_state();
 }
 
@@ -73,6 +73,70 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
 }
 
+pub const MMIO_OffsetBegin = 0x10;
+pub const MMIO_OffsetEndInclusive = 0x3F;
+
+pub fn store_mmio_u8(apu: *APUState, mmio: *MMIO, mmio_bytes: []u8, offset: u8, value: u8) void {
+    switch (offset) {
+        NR12 => {
+            mmio_bytes[offset] = value;
+            update_channel1_dac(&apu.ch1, mmio);
+        },
+        NR22 => {
+            mmio_bytes[offset] = value;
+            update_channel2_dac(&apu.ch2, mmio);
+        },
+        NR30 => {
+            mmio_bytes[offset] = value;
+            update_channel3_dac(&apu.ch3, mmio);
+        },
+        NR42 => {
+            mmio_bytes[offset] = value;
+            update_channel4_dac(&apu.ch4, mmio);
+        },
+        NR14 => {
+            mmio_bytes[offset] = value;
+            trigger_channel1(&apu.ch1, mmio);
+        },
+        NR24 => {
+            mmio_bytes[offset] = value;
+            trigger_channel2(&apu.ch2, mmio);
+        },
+        NR34 => {
+            mmio_bytes[offset] = value;
+            trigger_channel3(&apu.ch3, mmio);
+        },
+        NR44 => {
+            mmio_bytes[offset] = value;
+            trigger_channel4(&apu.ch4, mmio);
+        },
+        NR52 => {
+            // FIXME We should mask off the channel bits since they're read-only
+            const apu_was_on = mmio.NR52.enable_apu;
+            mmio_bytes[offset] = value;
+            const apu_is_on = mmio.NR52.enable_apu;
+
+            if (!apu_was_on and apu_is_on) {
+                reset_apu(apu);
+            }
+        },
+        else => mmio_bytes[offset] = value,
+    }
+}
+
+pub fn load_mmio_u8(apu: *const APUState, mmio: *const MMIO, mmio_bytes: []u8, offset: u8) u8 {
+    // FIXME Needed later for reading NR52 properly
+    _ = apu;
+    _ = mmio;
+
+    switch (offset) {
+        NR12, NR22, NR30, NR42 => return mmio_bytes[offset],
+        NR14, NR24, NR34, NR44 => return mmio_bytes[offset],
+        NR52 => return mmio_bytes[offset],
+        else => return mmio_bytes[offset],
+    }
+}
+
 pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
     var channel_samples: [4]u4 = undefined;
     var channel_dac_enabled: [4]bool = undefined;
@@ -106,7 +170,7 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
 }
 
 // NOTE: This is called AFTER the new MMIO value was written
-pub fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
+fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
     if (mmio.NR13_NR14.trigger) {
         ch1.enabled = true;
 
@@ -122,7 +186,7 @@ pub fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
     }
 }
 
-pub fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
+fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
     if (mmio.NR23_NR24.trigger) {
         ch2.enabled = true;
 
@@ -134,7 +198,7 @@ pub fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
     }
 }
 
-pub fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
+fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     if (mmio.NR33_NR34.trigger) {
         ch3.enabled = true;
 
@@ -142,7 +206,7 @@ pub fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     }
 }
 
-pub fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
+fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
     if (mmio.NR44.trigger) {
         ch4.enabled = true;
 
@@ -151,19 +215,19 @@ pub fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
 }
 
 // Turn off channels if the related DAC is off as well
-pub fn update_channel1_dac(ch1: *CH1State, mmio: *MMIO) void {
+fn update_channel1_dac(ch1: *CH1State, mmio: *MMIO) void {
     ch1.enabled = ch1.enabled and mmio.NR12.enable_dac.mask != 0;
 }
 
-pub fn update_channel2_dac(ch2: *CH2State, mmio: *MMIO) void {
+fn update_channel2_dac(ch2: *CH2State, mmio: *MMIO) void {
     ch2.enabled = ch2.enabled and mmio.NR22.enable_dac.mask != 0;
 }
 
-pub fn update_channel3_dac(ch3: *CH3State, mmio: *MMIO) void {
+fn update_channel3_dac(ch3: *CH3State, mmio: *MMIO) void {
     ch3.enabled = ch3.enabled and mmio.NR30.enable_dac;
 }
 
-pub fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
+fn update_channel4_dac(ch4: *CH4State, mmio: *MMIO) void {
     ch4.enabled = ch4.enabled and mmio.NR42.enable_dac.mask != 0;
 }
 
@@ -350,7 +414,7 @@ fn convert_generated_sample_to_float(sample: u4, dac_enabled: bool) f32 {
     }
 }
 
-// Retuns a stereo signal in [-4.0:4.0]
+// Returns a stereo signal in [-4.0:4.0]
 fn mix_channel_samples(mmio: *const MMIO, channel_samples_vec: f32_4) StereoSample {
     const zero_vec: f32_4 = @splat(0.0);
 
@@ -515,3 +579,28 @@ const MMIO_PerChannelBool = packed struct {
 comptime {
     assert(@sizeOf(MMIO) == 0x30);
 }
+
+// Offsets
+// NR10       = 0x10, // Channel 1 Sweep register (R/W)
+// NR11       = 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
+const NR12 = 0x12; // Channel 1 Volume Envelope (R/W)
+// NR13       = 0x13, // Channel 1 Frequency lo (Write Only)
+const NR14 = 0x14; // Channel 1 Frequency hi (R/W)
+// NR21      = 0x16, // Channel 2 Sound Length/Wave Pattern Duty (R/W)
+const NR22 = 0x17; // Channel 2 Volume Envelope (R/W)
+// NR23      = 0x18, // Channel 2 Frequency lo data (W)
+const NR24 = 0x19; // Channel 2 Frequency hi data (R/W)
+const NR30 = 0x1A; // Channel 3 Sound on/off (R/W)
+// NR31      = 0x1B, // Channel 3 Sound Length
+// NR32      = 0x1C, // Channel 3 Select output level (R/W)
+// NR33      = 0x1D, // Channel 3 Frequency's lower data (W)
+const NR34 = 0x1E; // Channel 3 Frequency's higher data (R/W)
+// NR41      = 0x20, // Channel 4 Sound Length (R/W)
+const NR42 = 0x21; // Channel 4 Volume Envelope (R/W)
+// NR43      = 0x22, // Channel 4 Polynomial Counter (R/W)
+const NR44 = 0x23; // Channel 4 Counter/consecutive, Inital (R/W)
+// NR50      = 0x24, // Channel control / ON-OFF / Volume (R/W)
+// NR51      = 0x25, // Selection of Sound output terminal (R/W)
+const NR52 = 0x26; // Audio master control
+// WAV_START  = 0x30, // Wave pattern start
+// WAV_END    = 0x3F, // Wave pattern end
