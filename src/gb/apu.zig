@@ -174,15 +174,17 @@ fn trigger_channel1(ch1: *CH1State, mmio: *MMIO) void {
     if (mmio.NR13_NR14.trigger) {
         ch1.enabled = true;
 
-        if (mmio.NR10.sweep_pace > 0) {
-            ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
-        }
+        ch1.period.counter = 0;
+
+        ch1.envelope.volume = mmio.NR12.envelope.initial_volume;
 
         if (mmio.NR12.envelope.sweep_pace > 0) {
             ch1.envelope.counter = mmio.NR12.envelope.sweep_pace - 1;
         }
 
-        ch1.envelope.volume = mmio.NR12.envelope.initial_volume;
+        if (mmio.NR10.sweep_pace > 0) {
+            ch1.period_sweep_counter = mmio.NR10.sweep_pace - 1;
+        }
     }
 }
 
@@ -190,17 +192,21 @@ fn trigger_channel2(ch2: *CH2State, mmio: *MMIO) void {
     if (mmio.NR23_NR24.trigger) {
         ch2.enabled = true;
 
+        ch2.period.counter = 0;
+
+        ch2.envelope.volume = mmio.NR22.envelope.initial_volume;
+
         if (mmio.NR22.envelope.sweep_pace > 0) {
             ch2.envelope.counter = mmio.NR22.envelope.sweep_pace - 1;
         }
-
-        ch2.envelope.volume = mmio.NR22.envelope.initial_volume;
     }
 }
 
 fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     if (mmio.NR33_NR34.trigger) {
         ch3.enabled = true;
+
+        ch3.period.counter = 0;
 
         // unreachable; // FIXME
     }
@@ -210,11 +216,13 @@ fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
     if (mmio.NR44.trigger) {
         ch4.enabled = true;
 
+        ch4.period.counter = 0;
+
+        ch4.envelope.volume = mmio.NR42.envelope.initial_volume;
+
         if (mmio.NR42.envelope.sweep_pace > 0) {
             ch4.envelope.counter = mmio.NR42.envelope.sweep_pace - 1;
         }
-
-        ch4.envelope.volume = mmio.NR42.envelope.initial_volume;
     }
 }
 
