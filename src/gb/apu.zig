@@ -322,18 +322,16 @@ fn tick_envelope_sweep(channel_enabled: bool, state: *EnvelopeState, mmio_envelo
     }
 }
 
+// _, const period_would_overflow = @addWithOverflow(mmio.NR13_NR14.period, period_delta);
+// Weird quirk
+// https://gbdev.io/pandocs/Audio_Registers.html#ff10--nr10-channel-1-sweep
+// if (mmio.NR10.direction == .Add and period_would_overflow == 1) {
+//     ch1.enabled = false; // FIXME this is broken!
+//     return;
+// }
 fn tick_period_sweep(ch1: *CH1State, mmio: *MMIO) void {
     if (ch1.enabled) {
         const period_delta = mmio.NR13_NR14.period >> mmio.NR10.step;
-        _, const period_would_overflow = @addWithOverflow(mmio.NR13_NR14.period, period_delta);
-
-        // Weird quirk
-        // https://gbdev.io/pandocs/Audio_Registers.html#ff10--nr10-channel-1-sweep
-        if (period_would_overflow == 1) {
-            // FIXME this is broken!
-            // ch1.enabled = false;
-            // return;
-        }
 
         if (mmio.NR10.sweep_pace != 0) // Frequency sweep is enabled
         {
@@ -342,7 +340,12 @@ fn tick_period_sweep(ch1: *CH1State, mmio: *MMIO) void {
             if (overflow_sweep_count == 1) {
                 switch (mmio.NR10.direction) {
                     .Add => {
-                        mmio.NR13_NR14.period += period_delta;
+                        _, const overflow_period = @addWithOverflow(mmio.NR13_NR14.period, period_delta);
+                        if (overflow_period == 1) {
+                            ch1.enabled = false;
+                        } else {
+                            mmio.NR13_NR14.period += period_delta;
+                        }
                     },
                     .Sub => {
                         mmio.NR13_NR14.period -= period_delta;
