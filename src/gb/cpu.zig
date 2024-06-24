@@ -15,25 +15,10 @@ pub const GBState = struct {
     ram: []u8,
     vram: []u8,
     mmio: MMIO,
-    enable_interrupts_master: bool, // IME
 
-    // PPU internal state
-    screen_output: []u8,
-
-    dma_active: bool = false,
-    dma_current_offset: u8 = 0,
-
-    keys: joypad.Keys,
-
-    ppu_state: ppu.PPUState, // Internal state
-    apu_state: apu.APUState, // Internal state
-    audio_ring_buffer: []f32,
-    rb_write: usize = 0,
-    rb_read: usize = 0,
-    sample_counter: u32 = 0,
-
+    enable_interrupts_master: bool = false, // IME
     is_halted: bool = false, // FIXME
-    pending_t_cycles: u8, // How much the CPU is in advance over other components
+    pending_t_cycles: u8 = 0, // How much the CPU is in advance over other components
     clock: packed union {
         t_cycles: u64,
         bits: packed struct {
@@ -44,6 +29,20 @@ pub const GBState = struct {
             _unused3: u32,
         },
     },
+
+    dma_active: bool = false,
+    dma_current_offset: u8 = 0,
+
+    keys: joypad.Keys,
+
+    ppu_state: ppu.PPUState,
+    screen_output: []u8,
+
+    apu_state: apu.APUState,
+    audio_ring_buffer: []f32,
+    rb_write: usize = 0,
+    rb_read: usize = 0,
+    sample_counter: u32 = 0,
 };
 
 pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState) !GBState {
@@ -114,14 +113,12 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
         .ram = ram,
         .vram = vram,
         .mmio = mmio,
-        .enable_interrupts_master = false,
-        .screen_output = screen_output,
+        .clock = .{ .t_cycles = 0 },
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
         .ppu_state = ppu.create_ppu_state(vram),
+        .screen_output = screen_output,
         .apu_state = apu.create_apu_state(),
         .audio_ring_buffer = audio_ring_buffer,
-        .pending_t_cycles = 0,
-        .clock = .{ .t_cycles = 0 },
     };
 }
 

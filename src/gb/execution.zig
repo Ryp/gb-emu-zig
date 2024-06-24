@@ -995,9 +995,11 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
             switch (offset) {
                 JOYP => return mmio_bytes[offset] & 0x0F,
                 DIV => return gb.clock.bits.div,
-                apu.MMIO_OffsetBegin...apu.MMIO_OffsetEndInclusive => return apu.load_mmio_u8(&gb.apu_state, &gb.mmio.apu, mmio_bytes, offset),
                 TIMA, TMA, TAC => return mmio_bytes[offset],
-                LCDC, DMA => return mmio_bytes[offset],
+                apu.MMIO_OffsetBegin...apu.MMIO_OffsetEndInclusive => return apu.load_mmio_u8(&gb.apu_state, &gb.mmio.apu, mmio_bytes, offset),
+                ppu.MMIO_OffsetABegin...ppu.MMIO_OffsetAEndInclusive => return ppu.load_mmio_u8(&gb.ppu_state, &gb.mmio.ppu, mmio_bytes, offset),
+                DMA => return mmio_bytes[offset],
+                ppu.MMIO_OffsetBBegin...ppu.MMIO_OffsetBEndInclusive => return ppu.load_mmio_u8(&gb.ppu_state, &gb.mmio.ppu, mmio_bytes, offset),
                 else => return mmio_bytes[offset],
             }
         },
@@ -1045,22 +1047,10 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             switch (offset) {
                 // We could probably just write the full byte and not worry
                 JOYP => gb.mmio.JOYP.input_selector = @enumFromInt((value >> 4) & 0b11),
-                DIV => { // Write resets clock
-                    gb.clock.t_cycles = 0;
-                },
+                DIV => gb.clock.t_cycles = 0, // Write resets clock
+                TIMA, TMA, TAC => mmio_bytes[offset] = value,
                 apu.MMIO_OffsetBegin...apu.MMIO_OffsetEndInclusive => apu.store_mmio_u8(&gb.apu_state, &gb.mmio.apu, mmio_bytes, offset, value),
-                LCDC => {
-                    const lcd_was_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
-                    mmio_bytes[offset] = value;
-                    const lcd_is_on = gb.mmio.ppu.LCDC.enable_lcd_and_ppu;
-
-                    // Only turn off during VBlank!
-                    if (lcd_was_on and !lcd_is_on) {
-                        assert(gb.mmio.ppu.STAT.ppu_mode == .VBlank);
-                    } else if (!lcd_was_on and lcd_is_on) {
-                        ppu.reset_ppu(&gb.ppu_state, &gb.mmio.ppu, gb.vram);
-                    }
-                },
+                ppu.MMIO_OffsetABegin...ppu.MMIO_OffsetAEndInclusive => ppu.store_mmio_u8(&gb.ppu_state, &gb.mmio.ppu, mmio_bytes, offset, value),
                 DMA => {
                     assert(value <= 0xdf);
                     gb.mmio.ppu.DMA = value;
@@ -1068,7 +1058,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     gb.dma_active = true;
                     gb.dma_current_offset = 0;
                 },
-                TIMA, TMA, TAC => mmio_bytes[offset] = value,
+                ppu.MMIO_OffsetBBegin...ppu.MMIO_OffsetBEndInclusive => ppu.store_mmio_u8(&gb.ppu_state, &gb.mmio.ppu, mmio_bytes, offset, value),
                 else => mmio_bytes[offset] = value,
             }
         },
@@ -1196,18 +1186,10 @@ const TIMA = 0x05; // Timer counter (R/W)
 const TMA = 0x06; // Timer Modulo (R/W)
 const TAC = 0x07; // Timer Control (R/W)
 // IF         = 0x0F, // Interrupt Flag (R/W)
-const LCDC = 0x40; // LCD Control (R/W)
-// STAT       = 0x41, // LCDC Status (R/W)
-// SCY        = 0x42, // Scroll Y (R/W)
-// SCX        = 0x43, // Scroll X (R/W)
-// LY         = 0x44, // LCDC Y-Coordinate (R)
-// LYC        = 0x45, // LY Compare (R/W)
+// APU Region
+// PPU Region A
 const DMA = 0x46; // DMA Transfer and Start Address (W)
-// BGP        = 0x47, // BG Palette Data (R/W) - Non CGB Mode Only
-// OBP0       = 0x48, // Object Palette 0 Data (R/W) - Non CGB Mode Only
-// OBP1       = 0x49, // Object Palette 1 Data (R/W) - Non CGB Mode Only
-// WY         = 0x4A, // Window Y Position (R/W)
-// WX         = 0x4B, // Window X Position minus 7 (R/W)
+// PPU Region B
 // KEY0       = 0x4C, // Controls DMG mode and PGB mode
 // KEY1       = 0x4D, // CGB Mode Only - Prepare Speed Switch
 // VBK        = 0x4F, // CGB Mode Only - VRAM Bank

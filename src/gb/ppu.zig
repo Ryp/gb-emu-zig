@@ -5,6 +5,11 @@ const assert = std.debug.assert;
 const tracy = @import("../tracy.zig");
 
 pub const PPUState = struct {
+    vram: []u8, // Does not own memory
+    vram_tile_data0: []u8,
+    vram_tile_data1: []u8,
+    vram_tile_map0: []u8,
+    vram_tile_map1: []u8,
     oam_sprites: [OAMSpriteCount]Sprite = undefined,
     h_cycles: u16 = 0, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
     internal_wy: u8 = 0,
@@ -12,14 +17,11 @@ pub const PPUState = struct {
     has_frame_to_consume: bool = false, // Tell the frontend to consume screen_output
     active_sprite_indices: [LineMaxActiveSprites]u8 = undefined,
     active_sprite_count: u8 = 0,
-    vram_tile_data0: []u8,
-    vram_tile_data1: []u8,
-    vram_tile_map0: []u8,
-    vram_tile_map1: []u8,
 };
 
 pub fn create_ppu_state(vram: []u8) PPUState {
     return .{
+        .vram = vram,
         .vram_tile_data0 = vram[0x0000..0x1000],
         .vram_tile_data1 = vram[0x0800..0x1800],
         .vram_tile_map0 = vram[0x1800..0x1C00],
@@ -27,8 +29,8 @@ pub fn create_ppu_state(vram: []u8) PPUState {
     };
 }
 
-pub fn reset_ppu(ppu: *PPUState, mmio: *MMIO, vram: []u8) void {
-    ppu.* = create_ppu_state(vram);
+pub fn reset_ppu(ppu: *PPUState, mmio: *MMIO) void {
+    ppu.* = create_ppu_state(ppu.vram);
 
     mmio.LY = 0;
 }
@@ -117,6 +119,41 @@ pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
                 ppu.has_frame_to_consume = true;
             }
         }
+    }
+}
+
+pub const MMIO_OffsetABegin = LCDC;
+pub const MMIO_OffsetAEndInclusive = LYC;
+pub const MMIO_OffsetBBegin = BGP;
+pub const MMIO_OffsetBEndInclusive = WX;
+
+pub fn store_mmio_u8(ppu: *PPUState, mmio: *MMIO, mmio_bytes: []u8, offset: u8, value: u8) void {
+    switch (offset) {
+        DMA => unreachable, // Doesn't belong to the PPU
+        LCDC => {
+            const lcd_was_on = mmio.LCDC.enable_lcd_and_ppu;
+            mmio_bytes[offset] = value;
+            const lcd_is_on = mmio.LCDC.enable_lcd_and_ppu;
+
+            // Only turn off during VBlank!
+            if (lcd_was_on and !lcd_is_on) {
+                assert(mmio.STAT.ppu_mode == .VBlank);
+            } else if (!lcd_was_on and lcd_is_on) {
+                reset_ppu(ppu, mmio);
+            }
+        },
+        else => mmio_bytes[offset] = value,
+    }
+}
+
+pub fn load_mmio_u8(ppu: *const PPUState, mmio: *const MMIO, mmio_bytes: []u8, offset: u8) u8 {
+    // FIXME Needed later maybe
+    _ = ppu;
+    _ = mmio;
+
+    switch (offset) {
+        DMA => unreachable, // Doesn't belong to the PPU
+        else => return mmio_bytes[offset],
     }
 }
 
@@ -460,3 +497,17 @@ comptime {
     assert(@sizeOf(Sprite) == 4);
     assert(@sizeOf(PositionTileLocal) == 2);
 }
+
+// MMIO Offsets
+const LCDC = 0x40; // LCD Control (R/W)
+const STAT = 0x41; // LCDC Status (R/W)
+const SCY = 0x42; // Scroll Y (R/W)
+const SCX = 0x43; // Scroll X (R/W)
+const LY = 0x44; // LCDC Y-Coordinate (R)
+const LYC = 0x45; // LY Compare (R/W)
+const DMA = 0x46;
+const BGP = 0x47; // BG Palette Data (R/W) - Non CGB Mode Only
+const OBP0 = 0x48; // Object Palette 0 Data (R/W) - Non CGB Mode Only
+const OBP1 = 0x49; // Object Palette 1 Data (R/W) - Non CGB Mode Only
+const WY = 0x4A; // Window Y Position (R/W)
+const WX = 0x4B; // Window X Position minus 7 (R/W)

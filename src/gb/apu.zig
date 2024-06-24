@@ -73,8 +73,8 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
 }
 
-pub const MMIO_OffsetBegin = 0x10;
-pub const MMIO_OffsetEndInclusive = 0x3F;
+pub const MMIO_OffsetBegin = NR10;
+pub const MMIO_OffsetEndInclusive = WAV_END;
 
 pub fn store_mmio_u8(apu: *APUState, mmio: *MMIO, mmio_bytes: []u8, offset: u8, value: u8) void {
     switch (offset) {
@@ -580,8 +580,8 @@ comptime {
     assert(@sizeOf(MMIO) == 0x30);
 }
 
-// Offsets
-// NR10       = 0x10, // Channel 1 Sweep register (R/W)
+// MMIO Offsets
+const NR10 = 0x10; // Channel 1 Sweep register (R/W)
 // NR11       = 0x11, // Channel 1 Sound length/Wave pattern duty (R/W)
 const NR12 = 0x12; // Channel 1 Volume Envelope (R/W)
 // NR13       = 0x13, // Channel 1 Frequency lo (Write Only)
@@ -603,4 +603,4 @@ const NR44 = 0x23; // Channel 4 Counter/consecutive, Inital (R/W)
 // NR51      = 0x25, // Selection of Sound output terminal (R/W)
 const NR52 = 0x26; // Audio master control
 // WAV_START  = 0x30, // Wave pattern start
-// WAV_END    = 0x3F, // Wave pattern end
+const WAV_END = 0x3F; // Wave pattern end
