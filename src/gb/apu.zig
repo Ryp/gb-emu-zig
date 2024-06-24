@@ -48,7 +48,7 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
-    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (5 + mmio.NR43.clock_shift)); // FIXME
+    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (6 + mmio.NR43.clock_shift)); // FIXME
 
     if (tick_64hz == 1) {
         tick_envelope_sweep(apu.ch1.enabled, &apu.ch1.envelope, mmio.NR12.envelope);
@@ -206,8 +206,6 @@ fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     if (mmio.NR33_NR34.trigger) {
         ch3.enabled = true;
 
-        ch3.period.counter = 0;
-
         // unreachable; // FIXME
     }
 }
@@ -215,8 +213,6 @@ fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
 fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
     if (mmio.NR44.trigger) {
         ch4.enabled = true;
-
-        ch4.period.counter = 0;
 
         ch4.envelope.volume = mmio.NR42.envelope.initial_volume;
 
