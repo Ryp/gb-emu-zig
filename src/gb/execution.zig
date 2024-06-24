@@ -169,7 +169,7 @@ fn step_dma(gb: *cpu.GBState, t_cycle_count: u8) void {
     defer scope.end();
 
     const dma_src_address = @as(u16, gb.mmio.ppu.DMA) << 8;
-    const oam_sprites_mem: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+    const oam_sprites_mem = std.mem.sliceAsBytes(&gb.ppu_state.oam_sprites);
 
     // Copy 1 byte per M-cycle
     const byte_count_to_copy_max = t_cycle_count / 4;
@@ -983,7 +983,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
             assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
 
             const offset: u8 = @truncate(address);
-            const oam_memory: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+            const oam_memory = std.mem.sliceAsBytes(&gb.ppu_state.oam_sprites);
 
             return oam_memory[offset];
         },
@@ -1036,7 +1036,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
             assert(gb.mmio.ppu.STAT.ppu_mode != .Drawing);
 
             const offset: u8 = @truncate(address);
-            const oam_memory: *[ppu.OAMMemoryByteCount]u8 = @ptrCast(&gb.oam_sprites);
+            const oam_memory = std.mem.sliceAsBytes(&gb.ppu_state.oam_sprites);
 
             oam_memory[offset] = value;
         },
@@ -1103,7 +1103,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
                     if (lcd_was_on and !lcd_is_on) {
                         assert(gb.mmio.ppu.STAT.ppu_mode == .VBlank);
                     } else if (!lcd_was_on and lcd_is_on) {
-                        ppu.reset_ppu(gb);
+                        ppu.reset_ppu(&gb.ppu_state, &gb.mmio.ppu, gb.vram);
                     }
                 },
                 .DMA => {

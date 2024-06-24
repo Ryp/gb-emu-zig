@@ -16,22 +16,16 @@ pub const GBState = struct {
     vram: []u8,
     mmio: MMIO,
     enable_interrupts_master: bool, // IME
-    oam_sprites: [ppu.OAMSpriteCount]ppu.Sprite,
 
     // PPU internal state
     screen_output: []u8,
-    ppu_h_cycles: u16, // NOTE: Normally independent of the CPU cycles but on DMG they match 1:1
-    internal_wy: u8 = 0,
-    last_stat_interrupt_line: bool, // Last state of the STAT interrupt line
-    has_frame_to_consume: bool, // Tell the frontend to consume screen_output
-    active_sprite_indices: [ppu.LineMaxActiveSprites]u8,
-    active_sprite_count: u8,
 
     dma_active: bool = false,
     dma_current_offset: u8 = 0,
 
     keys: joypad.Keys,
 
+    ppu_state: ppu.PPUState, // Internal state
     apu_state: apu.APUState, // Internal state
     audio_ring_buffer: []f32,
     rb_write: usize = 0,
@@ -121,15 +115,9 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
         .vram = vram,
         .mmio = mmio,
         .enable_interrupts_master = false,
-        .oam_sprites = undefined,
         .screen_output = screen_output,
-        .ppu_h_cycles = 0,
-        .internal_wy = 0,
-        .last_stat_interrupt_line = false,
-        .has_frame_to_consume = false,
-        .active_sprite_indices = undefined,
-        .active_sprite_count = 0,
         .keys = .{ .dpad = .{ .pressed_mask = 0 }, .buttons = .{ .pressed_mask = 0 } },
+        .ppu_state = ppu.create_ppu_state(vram),
         .apu_state = apu.create_apu_state(),
         .audio_ring_buffer = audio_ring_buffer,
         .pending_t_cycles = 0,

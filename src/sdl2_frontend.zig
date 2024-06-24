@@ -103,7 +103,7 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
 
         tracy.frameMark();
 
-        while (!gb.has_frame_to_consume) {
+        while (!gb.ppu_state.has_frame_to_consume) {
             const poll_scope = tracy.traceNamed(@src(), "SDL Poll Event");
             defer poll_scope.end();
 
@@ -168,7 +168,7 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
             std.debug.print("sent {} audio samples. queue_size = {}\n", .{ samples.len, queue_size });
         }
 
-        gb.has_frame_to_consume = false;
+        gb.ppu_state.has_frame_to_consume = false;
 
         // Set window title
         _ = std.fmt.bufPrintZ(title_string, "Emu frame {}", .{frame_index}) catch unreachable;
