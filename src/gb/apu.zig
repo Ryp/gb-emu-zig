@@ -210,7 +210,11 @@ fn trigger_channel4(ch4: *CH4State, mmio: *MMIO) void {
     if (mmio.NR44.trigger) {
         ch4.enabled = true;
 
-        // unreachable; // FIXME
+        if (mmio.NR42.envelope.sweep_pace > 0) {
+            ch4.envelope.counter = mmio.NR42.envelope.sweep_pace - 1;
+        }
+
+        ch4.envelope.volume = mmio.NR42.envelope.initial_volume;
     }
 }
 
