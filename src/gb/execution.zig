@@ -1007,7 +1007,7 @@ pub fn load_memory_u8(gb: *GBState, address: u16) u8 {
         },
         0xff80...0xfffe => { // HRAM
             const offset: u8 = @truncate(address);
-            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            const mmio_bytes = std.mem.asBytes(&gb.mmio);
             return mmio_bytes[offset];
         },
     }
@@ -1066,7 +1066,7 @@ fn store_memory_u8(gb: *GBState, address: u16, value: u8) void {
         },
         0xff80...0xfffe => { // HRAM
             const offset: u8 = @truncate(address);
-            const mmio_bytes = @as(*[cpu.MMIOSizeBytes]u8, @ptrCast(&gb.mmio));
+            const mmio_bytes = std.mem.asBytes(&gb.mmio);
             mmio_bytes[offset] = value;
         },
     }

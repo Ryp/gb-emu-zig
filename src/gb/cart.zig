@@ -363,7 +363,7 @@ fn extract_header_from_rom(cart_rom_bytes: []const u8) CartHeader {
     assert(cart_rom_bytes.len >= CartHeaderOffsetBytes + CartHeaderSizeBytes);
 
     var header: CartHeader = undefined;
-    const header_bytes: *[CartHeaderSizeBytes]u8 = @ptrCast(&header);
+    const header_bytes = std.mem.asBytes(&header);
 
     std.mem.copyForwards(u8, header_bytes, cart_rom_bytes[CartHeaderOffsetBytes .. CartHeaderOffsetBytes + CartHeaderSizeBytes]);
 
