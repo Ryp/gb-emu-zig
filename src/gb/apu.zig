@@ -23,6 +23,8 @@ const CH2State = struct {
 
 const CH3State = struct {
     enabled: bool = false,
+    period_counter: u11 = 0,
+    sample_index: u5 = 0,
 };
 
 const CH4State = struct {
@@ -48,7 +50,7 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
-    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (6 + mmio.NR43.clock_shift)); // FIXME
+    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (6 + mmio.NR43.clock_shift));
 
     if (tick_64hz == 1) {
         tick_envelope_sweep(apu.ch1.enabled, &apu.ch1.envelope, mmio.NR12.envelope);
@@ -71,6 +73,7 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     // The tick rate is too high so we count M-cycles manually
     tick_period_counter(apu.ch1.enabled, &apu.ch1.period, mmio.NR13_NR14, m_cycles_count);
     tick_period_counter(apu.ch2.enabled, &apu.ch2.period, mmio.NR23_NR24, m_cycles_count);
+    tick_period_counter_ch3(&apu.ch3, mmio.NR33_NR34, m_cycles_count);
 }
 
 pub const MMIO_OffsetBegin = NR10;
@@ -148,8 +151,8 @@ pub fn sample_channels(apu: *APUState, mmio: *const MMIO) StereoSample {
 
     channel_samples[0] = generate_channel1_sample(apu.ch1, mmio);
     channel_samples[1] = generate_channel2_sample(apu.ch2, mmio);
-    channel_samples[2] = ChannelOffSample; // FIXME
-    channel_samples[3] = generate_channel4_sample(apu.ch4, mmio); // FIXME
+    channel_samples[2] = generate_channel3_sample(apu.ch3, mmio);
+    channel_samples[3] = generate_channel4_sample(apu.ch4, mmio);
 
     var channel_samples_f32: [4]f32 = undefined;
 
@@ -206,7 +209,9 @@ fn trigger_channel3(ch3: *CH3State, mmio: *MMIO) void {
     if (mmio.NR33_NR34.trigger) {
         ch3.enabled = true;
 
-        // unreachable; // FIXME
+        ch3.period_counter = 0;
+
+        ch3.sample_index = 1;
     }
 }
 
@@ -288,6 +293,19 @@ fn tick_period_counter(channel_enabled: bool, state: *PeriodState, mmio_frequenc
             if (overflow == 1) {
                 state.counter = mmio_frequency.period;
                 state.duty_index +%= 1;
+            }
+        }
+    }
+}
+
+fn tick_period_counter_ch3(ch3: *CH3State, mmio_frequency: MMIO_ChannelControlAndFrequency, m_cycles_count: u8) void {
+    for (0..m_cycles_count) |_| {
+        if (ch3.enabled) {
+            ch3.period_counter, const overflow = @addWithOverflow(ch3.period_counter, 2);
+
+            if (overflow == 1) {
+                ch3.period_counter = mmio_frequency.period;
+                ch3.sample_index +%= 1;
             }
         }
     }
@@ -406,6 +424,28 @@ const DutyCycles: [4][8]u1 = .{
     .{ 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
     .{ 1, 0, 0, 0, 0, 0, 0, 1 }, // 75%
 };
+
+fn generate_channel3_sample(ch3: CH3State, mmio: *const MMIO) u4 {
+    const channel_active = ch3.enabled and (!mmio.NR33_NR34.enable_length_timer or mmio.NR31.length_timer > 0);
+
+    if (!channel_active) {
+        return ChannelOffSample;
+    }
+
+    const wave_mmio_bytes = std.mem.asBytes(mmio)[WAV_START - MMIO_OffsetBegin .. WAV_END + 1 - MMIO_OffsetBegin];
+
+    const wave_sample_byte = wave_mmio_bytes[ch3.sample_index / 2];
+    const wave_sample_nibble: u4 = if (ch3.sample_index % 2 == 0) @truncate(wave_sample_byte >> 4) else @truncate(wave_sample_byte);
+
+    const sample = switch (mmio.NR32.output_level) {
+        .Mute => 0,
+        .Volume100pcts => wave_sample_nibble,
+        .Volume50pcts => wave_sample_nibble >> 1,
+        .Volume25pcts => wave_sample_nibble >> 2,
+    };
+
+    return sample;
+}
 
 fn generate_channel4_sample(ch4: CH4State, mmio: *const MMIO) u4 {
     const channel_active = ch4.enabled and (!mmio.NR44.enable_length_timer or mmio.NR41.length_timer > 0);
@@ -613,5 +653,5 @@ const NR44 = 0x23; // Channel 4 Counter/consecutive, Inital (R/W)
 // NR50      = 0x24, // Channel control / ON-OFF / Volume (R/W)
 // NR51      = 0x25, // Selection of Sound output terminal (R/W)
 const NR52 = 0x26; // Audio master control
-// WAV_START  = 0x30, // Wave pattern start
+const WAV_START = 0x30; // Wave pattern start
 const WAV_END = 0x3F; // Wave pattern end
