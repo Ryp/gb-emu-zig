@@ -15,7 +15,7 @@ test {
 
     const rom_bytes = [2]u8{ 3, 3 };
 
-    var cart_state = try cart.create_cart_state(allocator, &rom_bytes);
+    var cart_state = try cart.create_cart_state_test(allocator, &rom_bytes);
     defer cart.destroy_cart_state(allocator, &cart_state);
 
     var gb = try cpu.create_gb_state(allocator, &cart_state);

@@ -29,7 +29,16 @@ pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u
         .rom = cart_rom_bytes,
         .rom_bank_count = rom_bank_count,
         .ram_bank_count = ram_bank_count,
-        .mbc_state = try create_mbc_state(allocator, properties, ram_size_bytes, rom_size_bytes),
+        .mbc_state = try create_mbc_state(allocator, properties.mbc_type, ram_size_bytes, rom_size_bytes),
+    };
+}
+
+pub fn create_cart_state_test(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
+    return CartState{
+        .rom = cart_rom_bytes,
+        .rom_bank_count = 2,
+        .ram_bank_count = 0,
+        .mbc_state = try create_mbc_state(allocator, .ROMOnly, 0, 0),
     };
 }
 
@@ -69,8 +78,8 @@ const MBC2_State = struct {
     nibble_ram: []u4,
 };
 
-fn create_mbc_state(allocator: std.mem.Allocator, properties: CartridgeProperties, ram_size_bytes: usize, rom_size_bytes: usize) !MBC_State {
-    switch (properties.mbc_type) {
+fn create_mbc_state(allocator: std.mem.Allocator, mbc_type: MBCType, ram_size_bytes: usize, rom_size_bytes: usize) !MBC_State {
+    switch (mbc_type) {
         .ROMOnly => {
             return .{ .ROMOnly = undefined };
         },
