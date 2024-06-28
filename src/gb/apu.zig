@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const tracy = @import("../tracy.zig");
+
 pub const APUState = struct {
     ch1: CH1State = .{},
     ch2: CH2State = .{},
@@ -47,6 +49,9 @@ fn reset_apu(apu: *APUState) void {
 // and the APU will most likely output the wrong sound.
 // NOTE: The calling order between tick update functions is important here since there's some data dependencies.
 pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cycles_count: u8) void {
+    const scope = tracy.trace(@src());
+    defer scope.end();
+
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);

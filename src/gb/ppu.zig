@@ -35,12 +35,9 @@ pub fn reset_ppu(ppu: *PPUState, mmio: *MMIO) void {
     mmio.LY = 0;
 }
 
-pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
+pub fn step_ppu(ppu: *PPUState, mmio: *MMIO, mmio_IF: *cpu.MMIO_IF, screen_output: []u8, t_cycle_count: u8) void {
     const scope = tracy.trace(@src());
     defer scope.end();
-
-    const ppu = &gb.ppu_state;
-    const mmio = &gb.mmio.ppu;
 
     var t_cycles_remaining = t_cycle_count;
 
@@ -68,7 +65,7 @@ pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
 
             if (previous_ppu_mode != .VBlank) {
                 mmio.STAT.ppu_mode = .VBlank;
-                gb.mmio.IF.requested_interrupt.flag.vblank = true;
+                mmio_IF.requested_interrupt.flag.vblank = true;
             }
         }
 
@@ -77,7 +74,7 @@ pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
 
         // Only request an interrupt when the interrupt line goes up
         if (!ppu.last_stat_interrupt_line and interrupt_line) {
-            gb.mmio.IF.requested_interrupt.flag.lcd = true;
+            mmio_IF.requested_interrupt.flag.lcd = true;
         }
 
         ppu.last_stat_interrupt_line = interrupt_line;
@@ -93,7 +90,7 @@ pub fn step_ppu(gb: *cpu.GBState, t_cycle_count: u8) void {
                     const pixel_color = draw_dot(ppu, mmio, @intCast(x), y);
 
                     const screen_dst_offset = @as(u16, y) * ScreenWidth + x;
-                    gb.screen_output[screen_dst_offset] = pixel_color;
+                    screen_output[screen_dst_offset] = pixel_color;
                 }
             },
         }

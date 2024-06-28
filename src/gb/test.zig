@@ -13,9 +13,7 @@ test {
 
     const allocator = gpa.allocator();
 
-    const rom_bytes = [2]u8{ 3, 3 };
-
-    var cart_state = try cart.create_cart_state_test(allocator, &rom_bytes);
+    var cart_state = try cart.create_cart_state_dummy(allocator);
     defer cart.destroy_cart_state(allocator, &cart_state);
 
     var gb = try cpu.create_gb_state(allocator, &cart_state);
@@ -39,16 +37,16 @@ test {
     try expectEqual(0x0100, gb.registers.pc);
 
     gb.registers.a = 25;
-    execution.execute_instruction(&gb, .{ .byte_len = 1, .encoding = .{ .add_a_r8 = .{ .r8 = instructions.R8.a } } });
+    execution.execute_instruction(&gb, .{ .add_a_r8 = .{ .r8 = instructions.R8.a } });
 
     try expectEqual(50, gb.registers.a);
 
     gb.registers.b = 1;
-    execution.execute_instruction(&gb, .{ .byte_len = 1, .encoding = .{ .add_a_r8 = .{ .r8 = instructions.R8.b } } });
+    execution.execute_instruction(&gb, .{ .add_a_r8 = .{ .r8 = instructions.R8.b } });
 
     try expectEqual(1, gb.registers.b);
 
-    execution.execute_instruction(&gb, .{ .byte_len = 1, .encoding = .{ .res_b3_r8 = .{ .bit_index = 0, .r8 = instructions.R8.b } } });
+    execution.execute_instruction(&gb, .{ .res_b3_r8 = .{ .bit_index = 0, .r8 = instructions.R8.b } });
 
     try expectEqual(0, gb.registers.b);
 

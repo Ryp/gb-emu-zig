@@ -33,10 +33,10 @@ pub fn create_cart_state(allocator: std.mem.Allocator, cart_rom_bytes: []const u
     };
 }
 
-pub fn create_cart_state_test(allocator: std.mem.Allocator, cart_rom_bytes: []const u8) !CartState {
+pub fn create_cart_state_dummy(allocator: std.mem.Allocator) !CartState {
     return CartState{
-        .rom = cart_rom_bytes,
-        .rom_bank_count = 2,
+        .rom = undefined,
+        .rom_bank_count = undefined,
         .ram_bank_count = 0,
         .mbc_state = try create_mbc_state(allocator, .ROMOnly, 0, 0),
     };

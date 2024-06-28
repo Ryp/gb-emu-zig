@@ -96,7 +96,7 @@ pub fn create_gb_state(allocator: std.mem.Allocator, cart_state: *cart.CartState
     mmio_bytes[0xFF] = 0x00;
 
     // FIXME
-    mmio.JOYP.input_selector = .both;
+    mmio.JOYP.input_selector = .Both;
     mmio.JOYP._unused = 0b11;
     mmio.ppu.LY = 0;
 
@@ -193,10 +193,10 @@ pub const MMIO = packed struct {
     JOYP: packed struct { //= 0x00, // Joypad (R/W)
         released_state: u4,
         input_selector: enum(u2) {
-            both,
-            buttons,
-            dpad,
-            none,
+            Both,
+            Buttons,
+            DPad,
+            None,
         },
         _unused: u2,
     },
@@ -223,19 +223,7 @@ pub const MMIO = packed struct {
     _unused_0C: u8,
     _unused_0D: u8,
     _unused_0E: u8,
-    IF: packed struct { //= 0x0F, // Interrupt Flag (R/W)
-        requested_interrupt: packed union {
-            mask: u5,
-            flag: packed struct {
-                vblank: bool,
-                lcd: bool,
-                timer: bool,
-                serial: bool,
-                joypad: bool,
-            },
-        },
-        _unused: u3,
-    },
+    IF: MMIO_IF, //= 0x0F, // Interrupt Flag (R/W)
     apu: apu.MMIO,
     ppu: ppu.MMIO,
     BANK: u8, //= 0x50, // Write to disable the boot ROM mapping
@@ -324,6 +312,20 @@ pub const MMIO = packed struct {
         enabled_interrupt_mask: u5,
         _unused: u3,
     },
+};
+
+pub const MMIO_IF = packed struct {
+    requested_interrupt: packed union {
+        mask: u5,
+        flag: packed struct {
+            vblank: bool,
+            lcd: bool,
+            timer: bool,
+            serial: bool,
+            joypad: bool,
+        },
+    },
+    _unused: u3,
 };
 
 pub const MMIOSizeBytes = 256;

@@ -7,263 +7,263 @@ const GBState = cpu.GBState;
 
 const execution = @import("execution.zig");
 
-pub fn decode_inc_pc(gb: *GBState) !Instruction {
+pub fn decode_inc_pc(gb: *GBState) Instruction {
     const b0 = instruction_load_u8_inc_pc(gb);
 
     if (b0 == 0b0000_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .nop = undefined } };
+        return .{ .nop = undefined };
     } else if ((b0 & 0b1100_1111) == 0b0000_0001) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .ld_r16_imm16 = .{
+        return .{ .ld_r16_imm16 = .{
             .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0010) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ld_r16mem_a = .{
+        return .{ .ld_r16mem_a = .{
             .r16mem = decode_r16mem(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1010) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ld_a_r16mem = .{
+        return .{ .ld_a_r16mem = .{
             .r16mem = decode_r16mem(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if (b0 == 0b0000_1000) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_sp = .{
+        return .{ .ld_imm16_sp = .{
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b0000_0011) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .inc_r16 = .{
+        return .{ .inc_r16 = .{
             .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1011) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .dec_r16 = .{
+        return .{ .dec_r16 = .{
             .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b0000_1001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .add_hl_r16 = .{
+        return .{ .add_hl_r16 = .{
             .r16 = decode_r16(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0100) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .inc_r8 = .{
+        return .{ .inc_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0101) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .dec_r8 = .{
+        return .{ .dec_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_0111) == 0b0000_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ld_r8_imm8 = .{
+        return .{ .ld_r8_imm8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 3)),
             .imm8 = instruction_load_u8_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b0000_0111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .rlca = undefined } };
+        return .{ .rlca = undefined };
     } else if (b0 == 0b0000_1111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .rrca = undefined } };
+        return .{ .rrca = undefined };
     } else if (b0 == 0b0001_0111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .rla = undefined } };
+        return .{ .rla = undefined };
     } else if (b0 == 0b0001_1111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .rra = undefined } };
+        return .{ .rra = undefined };
     } else if (b0 == 0b0010_0111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .daa = undefined } };
+        return .{ .daa = undefined };
     } else if (b0 == 0b0010_1111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .cpl = undefined } };
+        return .{ .cpl = undefined };
     } else if (b0 == 0b0011_0111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .scf = undefined } };
+        return .{ .scf = undefined };
     } else if (b0 == 0b0011_1111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ccf = undefined } };
+        return .{ .ccf = undefined };
     } else if (b0 == 0b0001_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .jr_imm8 = .{
+        return .{ .jr_imm8 = .{
             .offset = @bitCast(instruction_load_u8_inc_pc(gb)),
-        } } };
+        } };
     } else if ((b0 & 0b1110_0111) == 0b0010_0000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .jr_cond_imm8 = .{
+        return .{ .jr_cond_imm8 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .offset = @bitCast(instruction_load_u8_inc_pc(gb)),
-        } } };
+        } };
     } else if (b0 == 0b0001_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .stop = undefined } }; // FIXME stuff about stop being 2 instructions
+        return .{ .stop = undefined }; // FIXME stuff about stop being 2 instructions
     } else if (b0 == 0b0111_0110) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .halt = undefined } }; // Parse halt first or it'll be eaten by ld_r8_r8
+        return .{ .halt = undefined }; // Parse halt first or it'll be eaten by ld_r8_r8
     } else if ((b0 & 0b1100_0000) == 0b0100_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ld_r8_r8 = .{
+        return .{ .ld_r8_r8 = .{
             .r8_dst = decode_r8(read_bits_from_byte(u3, b0, 3)),
             .r8_src = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1000_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .add_a_r8 = .{
+        return .{ .add_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1000_1000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .adc_a_r8 = .{
+        return .{ .adc_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1001_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .sub_a_r8 = .{
+        return .{ .sub_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1001_1000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .sbc_a_r8 = .{
+        return .{ .sbc_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1010_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .and_a_r8 = .{
+        return .{ .and_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1010_1000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .xor_a_r8 = .{
+        return .{ .xor_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1011_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .or_a_r8 = .{
+        return .{ .or_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if ((b0 & 0b1111_1000) == 0b1011_1000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .cp_a_r8 = .{
+        return .{ .cp_a_r8 = .{
             .r8 = decode_r8(read_bits_from_byte(u3, b0, 0)),
-        } } };
+        } };
     } else if (b0 == 0b1100_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .add_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .add_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1100_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .adc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .adc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1101_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .sub_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .sub_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1101_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .sbc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .sbc_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1110_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .and_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .and_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1110_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .xor_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .xor_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1111_0110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .or_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .or_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1111_1110) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .cp_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .cp_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if ((b0 & 0b1110_0111) == 0b1100_0000) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ret_cond = .{
+        return .{ .ret_cond = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
-        } } };
+        } };
     } else if (b0 == 0b1100_1001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ret = undefined } };
+        return .{ .ret = undefined };
     } else if (b0 == 0b1101_1001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .reti = undefined } };
+        return .{ .reti = undefined };
     } else if ((b0 & 0b1110_0111) == 0b1100_0010) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .jp_cond_imm16 = .{
+        return .{ .jp_cond_imm16 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b1100_0011) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .jp_imm16 = .{
+        return .{ .jp_imm16 = .{
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b1110_1001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .jp_hl = undefined } };
+        return .{ .jp_hl = undefined };
     } else if ((b0 & 0b1110_0111) == 0b1100_0100) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .call_cond_imm16 = .{
+        return .{ .call_cond_imm16 = .{
             .cond = decode_cond(read_bits_from_byte(u2, b0, 3)),
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b1100_1101) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .call_imm16 = .{
+        return .{ .call_imm16 = .{
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if ((b0 & 0b1100_0111) == 0b1100_0111) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .rst_tgt3 = .{
+        return .{ .rst_tgt3 = .{
             .target_addr = decode_tgt3(read_bits_from_byte(u3, b0, 3)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b1100_0001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .pop_r16stk = .{
+        return .{ .pop_r16stk = .{
             .r16stk = decode_r16stk(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if ((b0 & 0b1100_1111) == 0b1100_0101) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .push_r16stk = .{
+        return .{ .push_r16stk = .{
             .r16stk = decode_r16stk(read_bits_from_byte(u2, b0, 4)),
-        } } };
+        } };
     } else if (b0 == 0b1100_1011) { // 0xCB prefix opcodes
         const b1 = instruction_load_u8_inc_pc(gb);
         const masked_b1_a = b1 & 0b1111_1000;
         const masked_b1_b = b1 & 0b1100_0000;
 
         if (masked_b1_a == 0b0000_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .rlc_r8 = .{
+            return .{ .rlc_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0000_1000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .rrc_r8 = .{
+            return .{ .rrc_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0001_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .rl_r8 = .{
+            return .{ .rl_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0001_1000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .rr_r8 = .{
+            return .{ .rr_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0010_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .sla_r8 = .{
+            return .{ .sla_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0010_1000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .sra_r8 = .{
+            return .{ .sra_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0011_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .swap_r8 = .{
+            return .{ .swap_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_a == 0b0011_1000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .srl_r8 = .{
+            return .{ .srl_r8 = .{
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_b == 0b0100_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .bit_b3_r8 = .{
+            return .{ .bit_b3_r8 = .{
                 .bit_index = read_bits_from_byte(u3, b1, 3),
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_b == 0b1000_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .res_b3_r8 = .{
+            return .{ .res_b3_r8 = .{
                 .bit_index = read_bits_from_byte(u3, b1, 3),
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         } else if (masked_b1_b == 0b1100_0000) {
-            return Instruction{ .byte_len = 2, .encoding = .{ .set_b3_r8 = .{
+            return .{ .set_b3_r8 = .{
                 .bit_index = read_bits_from_byte(u3, b1, 3),
                 .r8 = decode_r8(read_bits_from_byte(u3, b1, 0)),
-            } } };
+            } };
         }
     } else if (b0 == 0b1110_0010) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ldh_c_a = undefined } };
+        return .{ .ldh_c_a = undefined };
     } else if (b0 == 0b1110_0000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_imm8_a = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .ldh_imm8_a = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1110_1010) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .ld_imm16_a = .{
+        return .{ .ld_imm16_a = .{
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b1111_0010) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ldh_a_c = undefined } };
+        return .{ .ldh_a_c = undefined };
     } else if (b0 == 0b1111_0000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ldh_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } } };
+        return .{ .ldh_a_imm8 = .{ .imm8 = instruction_load_u8_inc_pc(gb) } };
     } else if (b0 == 0b1111_1010) {
-        return Instruction{ .byte_len = 3, .encoding = .{ .ld_a_imm16 = .{
+        return .{ .ld_a_imm16 = .{
             .imm16 = instruction_load_u16_inc_pc(gb),
-        } } };
+        } };
     } else if (b0 == 0b1110_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .add_sp_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } } };
+        return .{ .add_sp_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } };
     } else if (b0 == 0b1111_1000) {
-        return Instruction{ .byte_len = 2, .encoding = .{ .ld_hl_sp_plus_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } } };
+        return .{ .ld_hl_sp_plus_imm8 = .{ .offset = @bitCast(instruction_load_u8_inc_pc(gb)) } };
     } else if (b0 == 0b1111_1001) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ld_sp_hl = undefined } };
+        return .{ .ld_sp_hl = undefined };
     } else if (b0 == 0b1111_0011) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .di = undefined } };
+        return .{ .di = undefined };
     } else if (b0 == 0b1111_1011) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .ei = undefined } };
+        return .{ .ei = undefined };
     } else if (b0 == 0xD3 or b0 == 0xDB or b0 == 0xDD) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .invalid = undefined } };
+        return .{ .invalid = undefined };
     } else if (b0 == 0xE3 or b0 == 0xE4 or b0 == 0xEB or b0 == 0xEC or b0 == 0xED) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .invalid = undefined } };
+        return .{ .invalid = undefined };
     } else if (b0 == 0xF4 or b0 == 0xFC or b0 == 0xFD) {
-        return Instruction{ .byte_len = 1, .encoding = .{ .invalid = undefined } };
+        return .{ .invalid = undefined };
     }
 
-    return error.UnknownInstruction;
+    unreachable;
 }
 
 fn instruction_load_u8_inc_pc(gb: *GBState) u8 {
@@ -290,163 +290,6 @@ fn read_bits_from_byte(comptime T: type, op_byte: u8, bit_offset: usize) T {
 
     return @truncate(op_byte >> @intCast(bit_offset));
 }
-
-const OpCode = enum {
-    nop,
-    ld_r16_imm16,
-    ld_r16mem_a,
-    ld_a_r16mem,
-    ld_imm16_sp,
-    inc_r16,
-    dec_r16,
-    add_hl_r16,
-    inc_r8,
-    dec_r8,
-    ld_r8_imm8,
-    rlca,
-    rrca,
-    rla,
-    rra,
-    daa,
-    cpl,
-    scf,
-    ccf,
-    jr_imm8,
-    jr_cond_imm8,
-    stop,
-    ld_r8_r8,
-    halt,
-    add_a_r8,
-    adc_a_r8,
-    sub_a_r8,
-    sbc_a_r8,
-    and_a_r8,
-    xor_a_r8,
-    or_a_r8,
-    cp_a_r8,
-    add_a_imm8,
-    adc_a_imm8,
-    sub_a_imm8,
-    sbc_a_imm8,
-    and_a_imm8,
-    xor_a_imm8,
-    or_a_imm8,
-    cp_a_imm8,
-    ret_cond,
-    ret,
-    reti,
-    jp_cond_imm16,
-    jp_imm16,
-    jp_hl,
-    call_cond_imm16,
-    call_imm16,
-    rst_tgt3,
-    pop_r16stk,
-    push_r16stk,
-    ldh_c_a,
-    ldh_imm8_a,
-    ld_imm16_a,
-    ldh_a_c,
-    ldh_a_imm8,
-    ld_a_imm16,
-    add_sp_imm8,
-    ld_hl_sp_plus_imm8,
-    ld_sp_hl,
-    di,
-    ei,
-    rlc_r8,
-    rrc_r8,
-    rl_r8,
-    rr_r8,
-    sla_r8,
-    sra_r8,
-    swap_r8,
-    srl_r8,
-    bit_b3_r8,
-    res_b3_r8,
-    set_b3_r8,
-    invalid,
-};
-
-pub const Instruction = struct {
-    byte_len: u2,
-    encoding: union(OpCode) {
-        nop,
-        ld_r16_imm16: ld_r16_imm16,
-        ld_r16mem_a: ld_r16mem_a,
-        ld_a_r16mem: ld_a_r16mem,
-        ld_imm16_sp: ld_imm16_sp,
-        inc_r16: inc_r16,
-        dec_r16: dec_r16,
-        add_hl_r16: add_hl_r16,
-        inc_r8: inc_r8,
-        dec_r8: dec_r8,
-        ld_r8_imm8: ld_r8_imm8,
-        rlca,
-        rrca,
-        rla,
-        rra,
-        daa,
-        cpl,
-        scf,
-        ccf,
-        jr_imm8: jr_imm8,
-        jr_cond_imm8: jr_cond_imm8,
-        stop,
-        ld_r8_r8: ld_r8_r8,
-        halt,
-        add_a_r8: add_a_r8,
-        adc_a_r8: adc_a_r8,
-        sub_a_r8: sub_a_r8,
-        sbc_a_r8: sbc_a_r8,
-        and_a_r8: and_a_r8,
-        xor_a_r8: xor_a_r8,
-        or_a_r8: or_a_r8,
-        cp_a_r8: cp_a_r8,
-        add_a_imm8: add_a_imm8,
-        adc_a_imm8: adc_a_imm8,
-        sub_a_imm8: sub_a_imm8,
-        sbc_a_imm8: sbc_a_imm8,
-        and_a_imm8: and_a_imm8,
-        xor_a_imm8: xor_a_imm8,
-        or_a_imm8: or_a_imm8,
-        cp_a_imm8: cp_a_imm8,
-        ret_cond: ret_cond,
-        ret,
-        reti,
-        jp_cond_imm16: jp_cond_imm16,
-        jp_imm16: jp_imm16,
-        jp_hl,
-        call_cond_imm16: call_cond_imm16,
-        call_imm16: call_imm16,
-        rst_tgt3: rst_tgt3,
-        pop_r16stk: pop_r16stk,
-        push_r16stk: push_r16stk,
-        ldh_c_a,
-        ldh_imm8_a: ldh_imm8_a,
-        ld_imm16_a: ld_imm16_a,
-        ldh_a_c,
-        ldh_a_imm8: ldh_a_imm8,
-        ld_a_imm16: ld_a_imm16,
-        add_sp_imm8: add_sp_imm8,
-        ld_hl_sp_plus_imm8: ld_hl_sp_plus_imm8,
-        ld_sp_hl,
-        di,
-        ei,
-        rlc_r8: rlc_r8,
-        rrc_r8: rrc_r8,
-        rl_r8: rl_r8,
-        rr_r8: rr_r8,
-        sla_r8: sla_r8,
-        sra_r8: sra_r8,
-        swap_r8: swap_r8,
-        srl_r8: srl_r8,
-        bit_b3_r8: bit_b3_r8,
-        res_b3_r8: res_b3_r8,
-        set_b3_r8: set_b3_r8,
-        invalid,
-    },
-};
 
 pub const R8 = enum {
     b,
@@ -531,6 +374,160 @@ fn decode_cond(cond: u2) Cond {
 fn decode_tgt3(tgt3: u3) u8 {
     return @as(u8, tgt3) * 8;
 }
+
+const OpCode = enum {
+    nop,
+    ld_r16_imm16,
+    ld_r16mem_a,
+    ld_a_r16mem,
+    ld_imm16_sp,
+    inc_r16,
+    dec_r16,
+    add_hl_r16,
+    inc_r8,
+    dec_r8,
+    ld_r8_imm8,
+    rlca,
+    rrca,
+    rla,
+    rra,
+    daa,
+    cpl,
+    scf,
+    ccf,
+    jr_imm8,
+    jr_cond_imm8,
+    stop,
+    ld_r8_r8,
+    halt,
+    add_a_r8,
+    adc_a_r8,
+    sub_a_r8,
+    sbc_a_r8,
+    and_a_r8,
+    xor_a_r8,
+    or_a_r8,
+    cp_a_r8,
+    add_a_imm8,
+    adc_a_imm8,
+    sub_a_imm8,
+    sbc_a_imm8,
+    and_a_imm8,
+    xor_a_imm8,
+    or_a_imm8,
+    cp_a_imm8,
+    ret_cond,
+    ret,
+    reti,
+    jp_cond_imm16,
+    jp_imm16,
+    jp_hl,
+    call_cond_imm16,
+    call_imm16,
+    rst_tgt3,
+    pop_r16stk,
+    push_r16stk,
+    ldh_c_a,
+    ldh_imm8_a,
+    ld_imm16_a,
+    ldh_a_c,
+    ldh_a_imm8,
+    ld_a_imm16,
+    add_sp_imm8,
+    ld_hl_sp_plus_imm8,
+    ld_sp_hl,
+    di,
+    ei,
+    rlc_r8,
+    rrc_r8,
+    rl_r8,
+    rr_r8,
+    sla_r8,
+    sra_r8,
+    swap_r8,
+    srl_r8,
+    bit_b3_r8,
+    res_b3_r8,
+    set_b3_r8,
+    invalid,
+};
+
+pub const Instruction = union(OpCode) {
+    nop,
+    ld_r16_imm16: ld_r16_imm16,
+    ld_r16mem_a: ld_r16mem_a,
+    ld_a_r16mem: ld_a_r16mem,
+    ld_imm16_sp: ld_imm16_sp,
+    inc_r16: inc_r16,
+    dec_r16: dec_r16,
+    add_hl_r16: add_hl_r16,
+    inc_r8: inc_r8,
+    dec_r8: dec_r8,
+    ld_r8_imm8: ld_r8_imm8,
+    rlca,
+    rrca,
+    rla,
+    rra,
+    daa,
+    cpl,
+    scf,
+    ccf,
+    jr_imm8: jr_imm8,
+    jr_cond_imm8: jr_cond_imm8,
+    stop,
+    ld_r8_r8: ld_r8_r8,
+    halt,
+    add_a_r8: add_a_r8,
+    adc_a_r8: adc_a_r8,
+    sub_a_r8: sub_a_r8,
+    sbc_a_r8: sbc_a_r8,
+    and_a_r8: and_a_r8,
+    xor_a_r8: xor_a_r8,
+    or_a_r8: or_a_r8,
+    cp_a_r8: cp_a_r8,
+    add_a_imm8: add_a_imm8,
+    adc_a_imm8: adc_a_imm8,
+    sub_a_imm8: sub_a_imm8,
+    sbc_a_imm8: sbc_a_imm8,
+    and_a_imm8: and_a_imm8,
+    xor_a_imm8: xor_a_imm8,
+    or_a_imm8: or_a_imm8,
+    cp_a_imm8: cp_a_imm8,
+    ret_cond: ret_cond,
+    ret,
+    reti,
+    jp_cond_imm16: jp_cond_imm16,
+    jp_imm16: jp_imm16,
+    jp_hl,
+    call_cond_imm16: call_cond_imm16,
+    call_imm16: call_imm16,
+    rst_tgt3: rst_tgt3,
+    pop_r16stk: pop_r16stk,
+    push_r16stk: push_r16stk,
+    ldh_c_a,
+    ldh_imm8_a: ldh_imm8_a,
+    ld_imm16_a: ld_imm16_a,
+    ldh_a_c,
+    ldh_a_imm8: ldh_a_imm8,
+    ld_a_imm16: ld_a_imm16,
+    add_sp_imm8: add_sp_imm8,
+    ld_hl_sp_plus_imm8: ld_hl_sp_plus_imm8,
+    ld_sp_hl,
+    di,
+    ei,
+    rlc_r8: rlc_r8,
+    rrc_r8: rrc_r8,
+    rl_r8: rl_r8,
+    rr_r8: rr_r8,
+    sla_r8: sla_r8,
+    sra_r8: sra_r8,
+    swap_r8: swap_r8,
+    srl_r8: srl_r8,
+    bit_b3_r8: bit_b3_r8,
+    res_b3_r8: res_b3_r8,
+    set_b3_r8: set_b3_r8,
+    invalid,
+};
 
 const generic_imm_u8 = struct {
     imm8: u8,

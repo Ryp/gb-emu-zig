@@ -26,9 +26,9 @@ pub const Keys = packed struct {
 // FIXME don't allow pressing opposite directions at the same time (games break)
 pub fn update_state(gb: *cpu.GBState) void {
     gb.mmio.JOYP.released_state = switch (gb.mmio.JOYP.input_selector) {
-        .both => ~(gb.keys.buttons.pressed_mask | gb.keys.dpad.pressed_mask),
-        .buttons => ~gb.keys.buttons.pressed_mask,
-        .dpad => ~gb.keys.dpad.pressed_mask,
-        .none => 0xf,
+        .Both => ~(gb.keys.buttons.pressed_mask | gb.keys.dpad.pressed_mask),
+        .Buttons => ~gb.keys.buttons.pressed_mask,
+        .DPad => ~gb.keys.dpad.pressed_mask,
+        .None => 0xf,
     };
 }

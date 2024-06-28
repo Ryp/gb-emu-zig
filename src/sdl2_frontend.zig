@@ -143,29 +143,17 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
                 try execution.step(gb);
             }
 
-            //var samples: [200]f32 = undefined;
-
-            //for (&samples, 0..) |*s, i| {
-            //    const i_f = @as(f32, @floatFromInt(i)) / 200.0;
-            //    s.* = std.math.sin(i_f);
-            //}
-
-            //if (c.SDL_QueueAudio(1, &samples, samples.len) != 0) {
-            //    c.SDL_Log("Could not queue audio: %s", c.SDL_GetError());
-            //    return error.SDLInitializationFailed;
-            //}
-
             const samples = execution.read_audio(gb);
             const sample_bytes = std.mem.sliceAsBytes(samples);
 
-            const queue_size = c.SDL_GetQueuedAudioSize(sdl_audio_device_id);
+            // const queue_size = c.SDL_GetQueuedAudioSize(sdl_audio_device_id);
 
             if (c.SDL_QueueAudio(sdl_audio_device_id, sample_bytes.ptr, @intCast(sample_bytes.len)) != 0) {
                 c.SDL_Log("Could not queue audio: %s", c.SDL_GetError());
                 return error.SDLInitializationFailed;
             }
 
-            std.debug.print("sent {} audio samples. queue_size = {}\n", .{ samples.len, queue_size });
+            // std.debug.print("sent {} audio samples. queue_size = {}\n", .{ samples.len, queue_size });
         }
 
         gb.ppu_state.has_frame_to_consume = false;

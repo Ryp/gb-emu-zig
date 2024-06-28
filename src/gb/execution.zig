@@ -18,23 +18,6 @@ const joypad = @import("joypad.zig");
 
 const enable_debug = false;
 
-pub fn write_sample(gb: *GBState, sample: f32) void {
-    gb.audio_ring_buffer[gb.rb_write] = sample;
-    gb.rb_write = (gb.rb_write + 1) % gb.audio_ring_buffer.len;
-}
-
-pub fn read_audio(gb: *GBState) []f32 {
-    if (gb.rb_read > gb.rb_write) {
-        const sample_slice = gb.audio_ring_buffer[gb.rb_read..];
-        gb.rb_read = 0;
-        return sample_slice;
-    } else {
-        const sample_slice = gb.audio_ring_buffer[gb.rb_read..gb.rb_write];
-        gb.rb_read = gb.rb_write;
-        return sample_slice;
-    }
-}
-
 pub fn step(gb: *GBState) !void {
     const scope = tracy.trace(@src());
     defer scope.end();
@@ -65,7 +48,7 @@ pub fn step(gb: *GBState) !void {
         spend_cycles(gb, 4); // FIXME
     } else {
         // Execute instructions
-        const current_instruction = try instructions.decode_inc_pc(gb);
+        const current_instruction = instructions.decode_inc_pc(gb);
 
         if (enable_debug) {
             print_register_debug(gb.registers);
@@ -108,7 +91,7 @@ fn consume_pending_cycles(gb: *GBState) void {
         }
 
         if (gb.mmio.ppu.LCDC.enable_lcd_and_ppu) {
-            ppu.step_ppu(gb, gb.pending_t_cycles);
+            ppu.step_ppu(&gb.ppu_state, &gb.mmio.ppu, &gb.mmio.IF, gb.screen_output, gb.pending_t_cycles);
         }
 
         var sample: apu.StereoSample = undefined;
@@ -128,21 +111,29 @@ fn consume_pending_cycles(gb: *GBState) void {
         if (gb.sample_counter > period) {
             gb.sample_counter %= period;
 
-            // const sample_u32 = convert_sample_f32_2_to_u32(sample);
-
-            write_sample(gb, sample[0]);
-            write_sample(gb, sample[1]);
+            write_audio_sample(gb, sample[0]);
+            write_audio_sample(gb, sample[1]);
         }
     }
 
     gb.pending_t_cycles = 0; // FIXME
 }
 
-fn convert_sample_f32_2_to_u32(sample: apu.StereoSample) u32 {
-    const r: u16 = @intFromFloat((sample[0] + 1.0) * 30000.0);
-    const l: u16 = @intFromFloat((sample[1] + 1.0) * 30000.0);
+pub fn write_audio_sample(gb: *GBState, sample: f32) void {
+    gb.audio_ring_buffer[gb.rb_write] = sample;
+    gb.rb_write = (gb.rb_write + 1) % gb.audio_ring_buffer.len;
+}
 
-    return @as(u32, l) << 16 | r; // FIXME
+pub fn read_audio(gb: *GBState) []f32 {
+    if (gb.rb_read > gb.rb_write) {
+        const sample_slice = gb.audio_ring_buffer[gb.rb_read..];
+        gb.rb_read = 0;
+        return sample_slice;
+    } else {
+        const sample_slice = gb.audio_ring_buffer[gb.rb_read..gb.rb_write];
+        gb.rb_read = gb.rb_write;
+        return sample_slice;
+    }
 }
 
 fn step_timer(gb: *cpu.GBState, clock_falling_edge_mask: u64) void {
@@ -220,7 +211,7 @@ fn is_valid_pc(pc: u16) bool {
 }
 
 pub fn execute_instruction(gb: *GBState, instruction: instructions.Instruction) void {
-    switch (instruction.encoding) {
+    switch (instruction) {
         .nop => execute_nop(gb),
         .ld_r16_imm16 => |i| execute_ld_r16_imm16(gb, i),
         .ld_r16mem_a => |i| execute_ld_r16mem_a(gb, i),
@@ -1173,10 +1164,6 @@ fn reset_flags(registers: *Registers) void {
 
 fn set_carry(registers: *Registers, carry: bool) void {
     registers.flags.carry = if (carry) 1 else 0;
-}
-
-fn set_half_carry(registers: *Registers, half_carry: bool) void {
-    registers.flags.half_carry = if (half_carry) 1 else 0;
 }
 
 // For instruction execution it's useful to also be able to index mmio memory with offsets
