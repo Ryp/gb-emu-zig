@@ -5,6 +5,7 @@ const cpu = @import("gb/cpu.zig");
 const cart = @import("gb/cart.zig");
 const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
+const debug = @import("gb/debug.zig");
 
 const sdl2_frontend = @import("sdl2_frontend.zig");
 
@@ -38,6 +39,8 @@ pub fn main() !void {
 
     var cart_state = try cart.create_cart_state(allocator, rom_buffer[0..rom_bytes_read]);
     defer cart.destroy_cart_state(allocator, &cart_state);
+
+    std.debug.print("debug: Cart Type = '{s}'\n", .{debug.mbc_type_to_string(cart_state.mbc_state)});
 
     var gb = try cpu.create_gb_state(allocator, &cart_state);
     defer cpu.destroy_gb_state(allocator, &gb);

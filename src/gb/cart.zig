@@ -46,7 +46,7 @@ pub fn destroy_cart_state(allocator: std.mem.Allocator, cart: *CartState) void {
     destroy_mbc_state(allocator, cart.mbc_state);
 }
 
-const MBCType = enum {
+pub const MBCType = enum {
     ROMOnly,
     MBC1,
     MBC2,

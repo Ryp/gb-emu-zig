@@ -126,10 +126,11 @@ fn r16stk_to_string(r16stk: instructions.R16) [:0]const u8 {
 }
 
 fn cond_to_string(cond: instructions.Cond) [:0]const u8 {
-    return switch (cond) {
-        .nz => "nz",
-        .z => "z",
-        .nc => "nc",
-        .c => "c",
-    };
+    return @tagName(cond);
+}
+
+const cart = @import("cart.zig");
+
+pub fn mbc_type_to_string(mbc_type: cart.MBCType) [:0]const u8 {
+    return @tagName(mbc_type);
 }
