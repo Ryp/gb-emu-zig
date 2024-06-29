@@ -17,6 +17,7 @@ const apu = @import("apu.zig");
 const joypad = @import("joypad.zig");
 
 const enable_debug = false;
+const debug = @import("debug.zig");
 
 pub fn step(gb: *GBState) !void {
     const scope = tracy.trace(@src());
@@ -55,7 +56,7 @@ pub fn step(gb: *GBState) !void {
             std.debug.print(" | KEYS {b:0>8} JOYP {b:0>8}", .{ @as(u8, @bitCast(gb.keys)), @as(u8, @bitCast(gb.mmio.JOYP)) });
             std.debug.print(" | IME {b} IE {b:0>5} IF {b:0>5} STAT {b:0>8} | ", .{ @as(u1, if (gb.enable_interrupts_master) 1 else 0), gb.mmio.IE.enabled_interrupt_mask, gb.mmio.IF.requested_interrupt.mask, @as(u8, @bitCast(gb.mmio.ppu.STAT)) });
 
-            instructions.debug_print(current_instruction);
+            debug.print_instruction(current_instruction);
         }
 
         execute_instruction(gb, current_instruction);
