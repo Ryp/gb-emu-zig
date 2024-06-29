@@ -55,7 +55,7 @@ pub fn step_apu(apu: *APUState, mmio: *MMIO, clock_falling_edge_mask: u64, m_cyc
     const tick_64hz: u1 = @truncate(clock_falling_edge_mask >> 15);
     const tick_128hz: u1 = @truncate(clock_falling_edge_mask >> 14);
     const tick_256hz: u1 = @truncate(clock_falling_edge_mask >> 13);
-    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (6 + mmio.NR43.clock_shift));
+    const tick_lfsr_rate: u1 = @truncate(clock_falling_edge_mask >> (6 + @as(u6, mmio.NR43.clock_shift)));
 
     if (tick_64hz == 1) {
         tick_envelope_sweep(apu.ch1.enabled, &apu.ch1.envelope, mmio.NR12.envelope);
