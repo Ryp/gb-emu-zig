@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "gbemu",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .optimize = optimize,
         .target = target,
     });
@@ -24,8 +24,8 @@ pub fn build(b: *std.Build) void {
         const client_cpp = "external/tracy/public/TracyClient.cpp";
         const tracy_c_flags: []const []const u8 = &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
-        exe.root_module.addIncludePath(.{ .path = tracy_path });
-        exe.root_module.addCSourceFile(.{ .file = .{ .path = client_cpp }, .flags = tracy_c_flags });
+        exe.root_module.addIncludePath(b.path(tracy_path));
+        exe.root_module.addCSourceFile(.{ .file = b.path(client_cpp), .flags = tracy_c_flags });
 
         exe.linkSystemLibrary("c++");
         exe.linkLibC();
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     // Test
     const test_a = b.addTest(.{
         .name = "test",
-        .root_source_file = .{ .path = "src/gb/test.zig" },
+        .root_source_file = b.path("src/gb/test.zig"),
         .optimize = optimize,
     });
 
