@@ -375,84 +375,7 @@ fn decode_tgt3(tgt3: u3) u8 {
     return @as(u8, tgt3) * 8;
 }
 
-const OpCode = enum {
-    nop,
-    ld_r16_imm16,
-    ld_r16mem_a,
-    ld_a_r16mem,
-    ld_imm16_sp,
-    inc_r16,
-    dec_r16,
-    add_hl_r16,
-    inc_r8,
-    dec_r8,
-    ld_r8_imm8,
-    rlca,
-    rrca,
-    rla,
-    rra,
-    daa,
-    cpl,
-    scf,
-    ccf,
-    jr_imm8,
-    jr_cond_imm8,
-    stop,
-    ld_r8_r8,
-    halt,
-    add_a_r8,
-    adc_a_r8,
-    sub_a_r8,
-    sbc_a_r8,
-    and_a_r8,
-    xor_a_r8,
-    or_a_r8,
-    cp_a_r8,
-    add_a_imm8,
-    adc_a_imm8,
-    sub_a_imm8,
-    sbc_a_imm8,
-    and_a_imm8,
-    xor_a_imm8,
-    or_a_imm8,
-    cp_a_imm8,
-    ret_cond,
-    ret,
-    reti,
-    jp_cond_imm16,
-    jp_imm16,
-    jp_hl,
-    call_cond_imm16,
-    call_imm16,
-    rst_tgt3,
-    pop_r16stk,
-    push_r16stk,
-    ldh_c_a,
-    ldh_imm8_a,
-    ld_imm16_a,
-    ldh_a_c,
-    ldh_a_imm8,
-    ld_a_imm16,
-    add_sp_imm8,
-    ld_hl_sp_plus_imm8,
-    ld_sp_hl,
-    di,
-    ei,
-    rlc_r8,
-    rrc_r8,
-    rl_r8,
-    rr_r8,
-    sla_r8,
-    sra_r8,
-    swap_r8,
-    srl_r8,
-    bit_b3_r8,
-    res_b3_r8,
-    set_b3_r8,
-    invalid,
-};
-
-pub const Instruction = union(OpCode) {
+pub const Instruction = union(enum) {
     nop,
     ld_r16_imm16: ld_r16_imm16,
     ld_r16mem_a: ld_r16mem_a,
@@ -562,6 +485,11 @@ const generic_b3_r8 = struct {
     r8: R8,
 };
 
+pub const generic_cond_imm16 = struct {
+    cond: Cond,
+    imm16: u16,
+};
+
 pub const ld_r16_imm16 = struct {
     r16: R16,
     imm16: u16,
@@ -618,17 +546,11 @@ pub const ret_cond = struct {
     cond: Cond,
 };
 
-pub const jp_cond_imm16 = struct {
-    cond: Cond,
-    imm16: u16,
-};
+pub const jp_cond_imm16 = generic_cond_imm16;
 
 pub const jp_imm16 = generic_imm_u16;
 
-pub const call_cond_imm16 = struct {
-    cond: Cond,
-    imm16: u16,
-};
+pub const call_cond_imm16 = generic_cond_imm16;
 
 pub const call_imm16 = generic_imm_u16;
 
