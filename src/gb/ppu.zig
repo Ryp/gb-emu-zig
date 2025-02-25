@@ -333,8 +333,8 @@ fn get_sprite_tile_info(sprite: Sprite, sprites_extent: u8_2, pixel_coord: u8_2)
 
 fn all(vector: anytype) bool {
     const type_info = @typeInfo(@TypeOf(vector));
-    assert(type_info.Vector.child == bool);
-    assert(type_info.Vector.len > 1);
+    assert(type_info.vector.child == bool);
+    assert(type_info.vector.len > 1);
 
     return @reduce(.And, vector);
 }
