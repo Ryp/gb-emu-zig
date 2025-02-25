@@ -1,0 +1,47 @@
+name: Release
+on:
+  push:
+    tags:
+      - '**'
+env:
+  zig_version: 0.14.0 # Plug it back when the version is released
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goto-bus-stop/setup-zig@v2
+      - run: zig build -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu
+      - run: zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Linux Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./zig-out/bin/gbemu
+          asset_name: gb-emu-zig-x86_64-linux-gnu
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Windows Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./zig-out/bin/gbemu.exe
+          asset_name: gb-emu-zig-x86_64-windows-gnu.exe
+          asset_content_type: application/octet-stream
