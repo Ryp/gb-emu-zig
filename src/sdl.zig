@@ -8,7 +8,7 @@ const execution = @import("gb/execution.zig");
 const ppu = @import("gb/ppu.zig");
 
 const c = @cImport({
-    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL3/SDL.h");
 });
 
 const BgColor = c.SDL_Color{ .r = 0, .g = 0, .b = 128, .a = 255 };
@@ -21,7 +21,7 @@ const SdlContext = struct {
 fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
     _ = allocator; // FIXME
 
-    if (c.SDL_Init(c.SDL_INIT_EVERYTHING) != 0) {
+    if (!c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_EVENTS)) {
         c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     }
@@ -30,18 +30,18 @@ fn create_sdl_context(allocator: std.mem.Allocator) !SdlContext {
     const window_width = 4 * ppu.ScreenWidth;
     const window_height = 4 * ppu.ScreenHeight;
 
-    const window = c.SDL_CreateWindow("Gameboy Emu", c.SDL_WINDOWPOS_UNDEFINED, c.SDL_WINDOWPOS_UNDEFINED, @intCast(window_width), @intCast(window_height), c.SDL_WINDOW_SHOWN) orelse {
+    const window = c.SDL_CreateWindow("Gameboy Emu", @as(c_int, @intCast(window_width)), @as(c_int, @intCast(window_height)), 0) orelse {
         c.SDL_Log("Unable to create window: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     };
     errdefer c.SDL_DestroyWindow(window);
 
-    if (c.SDL_SetHint(c.SDL_HINT_RENDER_VSYNC, "1") == c.SDL_FALSE) {
+    if (!c.SDL_SetHint(c.SDL_HINT_RENDER_VSYNC, "1")) {
         c.SDL_Log("Unable to set hint: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     }
 
-    const renderer = c.SDL_CreateRenderer(window, -1, c.SDL_RENDERER_ACCELERATED) orelse {
+    const renderer = c.SDL_CreateRenderer(window, null) orelse {
         c.SDL_Log("Unable to create renderer: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     };
@@ -65,29 +65,36 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
     const sdl_context = try create_sdl_context(allocator);
     defer destroy_sdl_context(allocator, sdl_context);
 
-    var desired_spec: c.SDL_AudioSpec = undefined;
-    var obtained_spec: c.SDL_AudioSpec = undefined;
+    var desired_spec = c.SDL_AudioSpec{
+        .format = c.SDL_AUDIO_F32LE,
+        .freq = 44100,
+        .channels = 2,
+    };
 
-    desired_spec.freq = 44100;
-    desired_spec.format = c.AUDIO_F32;
-    desired_spec.channels = 2;
-    desired_spec.samples = 4096;
-    desired_spec.callback = null;
-    desired_spec.userdata = null;
-
-    if (c.SDL_OpenAudio(&desired_spec, &obtained_spec) != 0) {
+    const audio_device_stream = c.SDL_OpenAudioDeviceStream(c.SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired_spec, null, null);
+    if (audio_device_stream == null) {
         c.SDL_Log("Could not to open audio: %s", c.SDL_GetError());
         return error.SDLInitializationFailed;
     }
-    defer c.SDL_CloseAudio();
+    defer c.SDL_DestroyAudioStream(audio_device_stream);
+
+    const audio_device_id = c.SDL_GetAudioStreamDevice(audio_device_stream);
+
+    var obtained_spec: c.SDL_AudioSpec = undefined;
+
+    if (!c.SDL_GetAudioDeviceFormat(audio_device_id, &obtained_spec, null)) {
+        c.SDL_Log("Could not get audio format: %s", c.SDL_GetError());
+        return error.SDLInitializationFailed;
+    }
 
     assert(desired_spec.freq == obtained_spec.freq);
     assert(desired_spec.format == obtained_spec.format);
     assert(desired_spec.channels == obtained_spec.channels);
 
-    const sdl_audio_device_id: u32 = 1;
-
-    c.SDL_PauseAudio(0); // Play audio
+    if (!c.SDL_ResumeAudioDevice(audio_device_id)) {
+        c.SDL_Log("Could not get audio device to resume: %s", c.SDL_GetError());
+        return error.SDLInitializationFailed;
+    }
 
     const title_string = try allocator.alloc(u8, 1024);
     defer allocator.free(title_string);
@@ -109,24 +116,24 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
 
             // Poll events
             var sdlEvent: c.SDL_Event = undefined;
-            while (c.SDL_PollEvent(&sdlEvent) > 0) {
+            while (c.SDL_PollEvent(&sdlEvent)) {
                 switch (sdlEvent.type) {
-                    c.SDL_QUIT => {
+                    c.SDL_EVENT_QUIT => {
                         break :main_loop;
                     },
-                    c.SDL_MOUSEBUTTONUP => {}, // FIXME
-                    c.SDL_KEYDOWN, c.SDL_KEYUP => {
-                        const key_sym = sdlEvent.key.keysym.sym;
-                        const pressed = sdlEvent.type == c.SDL_KEYDOWN;
+                    c.SDL_EVENT_MOUSE_BUTTON_UP => {}, // FIXME
+                    c.SDL_EVENT_KEY_DOWN, c.SDL_EVENT_KEY_UP => {
+                        const key_sym = sdlEvent.key.key;
+                        const pressed = sdlEvent.type == c.SDL_EVENT_KEY_DOWN;
 
                         switch (key_sym) {
-                            c.SDLK_d => gb.keys.dpad.pressed.right = pressed,
-                            c.SDLK_a => gb.keys.dpad.pressed.left = pressed,
-                            c.SDLK_w => gb.keys.dpad.pressed.up = pressed,
-                            c.SDLK_s => gb.keys.dpad.pressed.down = pressed,
-                            c.SDLK_o => gb.keys.buttons.pressed.a = pressed,
-                            c.SDLK_k => gb.keys.buttons.pressed.b = pressed,
-                            c.SDLK_b => gb.keys.buttons.pressed.select = pressed,
+                            c.SDLK_D => gb.keys.dpad.pressed.right = pressed,
+                            c.SDLK_A => gb.keys.dpad.pressed.left = pressed,
+                            c.SDLK_W => gb.keys.dpad.pressed.up = pressed,
+                            c.SDLK_S => gb.keys.dpad.pressed.down = pressed,
+                            c.SDLK_O => gb.keys.buttons.pressed.a = pressed,
+                            c.SDLK_K => gb.keys.buttons.pressed.b = pressed,
+                            c.SDLK_B => gb.keys.buttons.pressed.select = pressed,
                             c.SDLK_RETURN => gb.keys.buttons.pressed.start = pressed,
                             c.SDLK_ESCAPE => {
                                 break :main_loop;
@@ -146,9 +153,7 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
             const samples = execution.read_audio(gb);
             const sample_bytes = std.mem.sliceAsBytes(samples);
 
-            // const queue_size = c.SDL_GetQueuedAudioSize(sdl_audio_device_id);
-
-            if (c.SDL_QueueAudio(sdl_audio_device_id, sample_bytes.ptr, @intCast(sample_bytes.len)) != 0) {
+            if (!c.SDL_PutAudioStreamData(audio_device_stream, sample_bytes.ptr, @intCast(sample_bytes.len))) {
                 c.SDL_Log("Could not queue audio: %s", c.SDL_GetError());
                 return error.SDLInitializationFailed;
             }
@@ -160,7 +165,7 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
 
         // Set window title
         _ = std.fmt.bufPrintZ(title_string, "Emu frame {}", .{frame_index}) catch unreachable;
-        c.SDL_SetWindowTitle(sdl_context.window, title_string.ptr);
+        _ = c.SDL_SetWindowTitle(sdl_context.window, title_string.ptr);
 
         // Clear backbuffer (not necessary, just for debug)
         _ = c.SDL_SetRenderDrawColor(sdl_context.renderer, BgColor.r, BgColor.g, BgColor.b, BgColor.a);
@@ -182,13 +187,17 @@ pub fn execute_main_loop(allocator: std.mem.Allocator, gb: *cpu.GBState) !void {
         const texture = c.SDL_CreateTexture(sdl_context.renderer, c.SDL_PIXELFORMAT_ARGB8888, c.SDL_TEXTUREACCESS_STATIC, ppu.ScreenWidth, ppu.ScreenHeight);
         defer c.SDL_DestroyTexture(texture);
 
+        // Match SDL2 behavior
+        _ = c.SDL_SetTextureScaleMode(texture, c.SDL_SCALEMODE_NEAREST);
+
         _ = c.SDL_UpdateTexture(texture, null, @ptrCast(backbuffer.ptr), ppu.ScreenWidth * 4);
-        _ = c.SDL_RenderCopy(sdl_context.renderer, texture, null, null);
+
+        _ = c.SDL_RenderTexture(sdl_context.renderer, texture, null, null);
 
         const present_scope = tracy.traceNamed(@src(), "SDL Wait for present");
         defer present_scope.end();
 
-        c.SDL_RenderPresent(sdl_context.renderer);
+        _ = c.SDL_RenderPresent(sdl_context.renderer);
 
         frame_index += 1;
     }

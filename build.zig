@@ -27,14 +27,19 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addIncludePath(b.path(tracy_path));
         exe.root_module.addCSourceFile(.{ .file = b.path(client_cpp), .flags = tracy_c_flags });
 
-        exe.linkSystemLibrary("c++");
         exe.linkLibC();
+        exe.linkLibCpp();
     }
 
     b.installArtifact(exe);
 
-    exe.linkSystemLibrary("c");
-    exe.linkSystemLibrary("SDL2");
+    const sdl_dep = b.dependency("sdl", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sdl_lib = sdl_dep.artifact("SDL3");
+
+    exe.root_module.linkLibrary(sdl_lib);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

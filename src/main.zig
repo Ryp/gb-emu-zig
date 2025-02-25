@@ -7,7 +7,7 @@ const instructions = @import("gb/instructions.zig");
 const execution = @import("gb/execution.zig");
 const debug = @import("gb/debug.zig");
 
-const sdl2_frontend = @import("sdl2_frontend.zig");
+const sdl_frontend = @import("sdl.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,5 +45,5 @@ pub fn main() !void {
     var gb = try cpu.create_gb_state(allocator, &cart_state);
     defer cpu.destroy_gb_state(allocator, &gb);
 
-    try sdl2_frontend.execute_main_loop(allocator, &gb);
+    try sdl_frontend.execute_main_loop(allocator, &gb);
 }
